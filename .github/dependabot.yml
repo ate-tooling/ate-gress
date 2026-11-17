@@ -1,9 +1,13 @@
 version: 2
 updates:
+# Every update waits a week after its release before it is proposed, so a
+# compromised release has time to be noticed and pulled.
 - package-ecosystem: gomod
   directory: /
   schedule:
     interval: weekly
+  cooldown:
+    default-days: 7
   # Kubernetes and controller-runtime move together, so minor and major
   # releases are bumped by hand. Dependabot proposes their patch releases.
   ignore:
@@ -20,8 +24,6 @@ updates:
   directory: /
   schedule:
     interval: weekly
-  # A new action version waits a week before it is proposed, so a compromised
-  # release has time to be noticed and pulled.
   cooldown:
     default-days: 7
   groups:
@@ -31,3 +33,5 @@ updates:
   directory: /
   schedule:
     interval: weekly
+  cooldown:
+    default-days: 7

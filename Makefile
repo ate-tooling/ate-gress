@@ -47,7 +47,7 @@ lint:
 
 .PHONY: lint-workflows
 lint-workflows: ## Audit the GitHub workflows (CI runs the same check).
-	$(ZIZMOR) --offline --persona=pedantic .github/workflows
+	$(ZIZMOR) --offline --persona=pedantic .github
 
 .PHONY: vulncheck
 vulncheck:

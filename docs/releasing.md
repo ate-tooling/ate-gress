@@ -34,8 +34,8 @@ Some properties the pipeline guarantees:
 - **Least privilege.** The workflow token is read-only. Each job is granted
   only the write scopes it uses, and each scope is commented with the reason.
 - **Pinned.** Every action is pinned to a commit SHA, and both base images are
-  pinned by digest. Dependabot proposes updates, and holds action updates for
-  a week first.
+  pinned by digest. Dependabot proposes updates, each one at least a week
+  after its release.
 - **Reproducible inputs.** Image timestamps come from the commit time
   (`SOURCE_DATE_EPOCH`). The binary is built with `-trimpath`.
 - **Audited.** `zizmor` (pedantic) and `actionlint` check the workflows in CI.
