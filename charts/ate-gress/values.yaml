@@ -1,0 +1,65 @@
+image:
+  repository: ghcr.io/samueltorres/ate-gress
+  # Defaults to the chart's appVersion.
+  tag: ""
+  # Pins the image by digest. Released charts set it to the image built and
+  # signed with them.
+  digest: ""
+  pullPolicy: IfNotPresent
+
+# Every replica decides requests; one at a time is elected to write status.
+replicas: 2
+
+# Substrate's egress gateway, the only client ate-gress accepts.
+gateway:
+  namespace: ate-system
+  podLabels:
+    app: atenet-egress
+  # The SPIFFE ID in the gateway's podidentity client certificate.
+  spiffeIDs:
+    - spiffe://cluster.local/ns/ate-system/sa/atenet-egress
+
+# Trust domain of actor SPIFFE IDs.
+actorTrustDomain: substrate-actor.local
+
+grpcPort: 9443
+metricsPort: 8080
+probePort: 8081
+
+# DEBUG logs every decision; INFO logs denials and audits.
+logLevel: INFO
+
+# After SIGTERM, keep serving for drainDelay so the gateway's DNS refresh
+# stops sending new streams, then give open streams stopTimeout to finish.
+drainDelay: 10s
+stopTimeout: 10s
+
+# The pod-certificate signers and trust bundles Substrate installs.
+podCertificates:
+  serviceDNSSigner: servicedns.podcert.ate.dev/identity
+  podIdentitySigner: podidentity.podcert.ate.dev/identity
+  trustBundleLabels:
+    podcert.ate.dev/canarying: live
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+
+# ate-gress is on the request path of every claimed host; give it a class that
+# is not evicted before the workloads that depend on it.
+priorityClassName: ""
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+podDisruptionBudget:
+  minAvailable: 1
+
+networkPolicy:
+  enabled: true
+  # Peers, besides the gateway, allowed to scrape metrics. Empty allows any.
+  metricsFrom: []

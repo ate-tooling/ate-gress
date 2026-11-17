@@ -1,0 +1,14 @@
+apiVersion: v2
+name: ate-gress
+description: L7 egress route policy for Agent Substrate, as an Envoy ext_proc service.
+type: application
+version: 0.1.0
+appVersion: dev
+home: https://github.com/samueltorres/ate-gress
+sources:
+  - https://github.com/samueltorres/ate-gress
+keywords:
+  - agent-substrate
+  - egress
+  - envoy
+  - ext_proc

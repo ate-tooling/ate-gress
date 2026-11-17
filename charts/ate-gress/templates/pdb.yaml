@@ -1,0 +1,12 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "ate-gress.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ate-gress.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "ate-gress.selectorLabels" . | nindent 6 }}

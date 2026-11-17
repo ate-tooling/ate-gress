@@ -1,0 +1,23 @@
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - ategress.samueltorres.github.io
+  resources:
+  - egressroutepolicies
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ategress.samueltorres.github.io
+  resources:
+  - egressroutepolicies/status
+  verbs:
+  - get
+  - patch
+  - update

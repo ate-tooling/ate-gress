@@ -1,0 +1,132 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ate-gress.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ate-gress.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "ate-gress.selectorLabels" . | nindent 6 }}
+  strategy:
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        {{- include "ate-gress.labels" . | nindent 8 }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.metricsPort | quote }}
+    spec:
+      serviceAccountName: {{ include "ate-gress.name" . }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      # drainDelay + stopTimeout, and some slack for the manager to stop.
+      terminationGracePeriodSeconds: 40
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            {{- include "ate-gress.selectorLabels" . | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: ate-gress
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}{{ with .Values.image.digest }}@{{ . }}{{ end }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        args:
+        - --grpc-address=:{{ .Values.grpcPort }}
+        - --metrics-address=:{{ .Values.metricsPort }}
+        - --health-probe-address=:{{ .Values.probePort }}
+        - --credential-bundle=/run/servicedns.podcert.ate.dev/credential-bundle.pem
+        - --client-ca-file=/run/podidentity.podcert.ate.dev/trust-bundle.pem
+        {{- range .Values.gateway.spiffeIDs }}
+        - --allowed-client-id={{ . }}
+        {{- end }}
+        - --actor-trust-domain={{ .Values.actorTrustDomain }}
+        - --log-level={{ .Values.logLevel }}
+        - --drain-delay={{ .Values.drainDelay }}
+        - --stop-timeout={{ .Values.stopTimeout }}
+        - --leader-election-namespace=$(POD_NAMESPACE)
+        env:
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: GOMEMLIMIT
+          valueFrom:
+            resourceFieldRef:
+              resource: limits.memory
+        ports:
+        - name: grpc
+          containerPort: {{ .Values.grpcPort }}
+        - name: metrics
+          containerPort: {{ .Values.metricsPort }}
+        - name: probes
+          containerPort: {{ .Values.probePort }}
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: probes
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: probes
+          periodSeconds: 10
+        resources:
+          {{- toYaml .Values.resources | nindent 10 }}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [ALL]
+        volumeMounts:
+        - name: servicedns
+          mountPath: /run/servicedns.podcert.ate.dev
+          readOnly: true
+        - name: podidentity
+          mountPath: /run/podidentity.podcert.ate.dev
+          readOnly: true
+      volumes:
+      # The serving certificate, for <name>.<namespace>.svc.
+      - name: servicedns
+        projected:
+          sources:
+          - podCertificate:
+              signerName: {{ .Values.podCertificates.serviceDNSSigner }}
+              keyType: ECDSAP256
+              credentialBundlePath: credential-bundle.pem
+      # The CAs that sign the gateway's client certificate.
+      - name: podidentity
+        projected:
+          sources:
+          - clusterTrustBundle:
+              signerName: {{ .Values.podCertificates.podIdentitySigner }}
+              labelSelector:
+                matchLabels:
+                  {{- toYaml .Values.podCertificates.trustBundleLabels | nindent 18 }}
+              path: trust-bundle.pem

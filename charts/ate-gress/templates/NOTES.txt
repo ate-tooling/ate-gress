@@ -1,0 +1,15 @@
+ate-gress is serving ext_proc on {{ include "ate-gress.name" . }}.{{ .Release.Namespace }}.svc:{{ .Values.grpcPort }}.
+
+Point Substrate's egress gateway at it. With the agent-substrate-operator:
+
+  kubectl patch substrateinstall substrate --type merge \
+    -p '{"spec":{"atenet":{"additionalEgressExtprocService":"{{ .Release.Namespace }}/{{ include "ate-gress.name" . }}:{{ .Values.grpcPort }}"}}}'
+
+With ate-setup:
+
+  ate-setup deploy ate-system --experimental-additional-egress-extproc-service={{ .Release.Namespace }}/{{ include "ate-gress.name" . }}:{{ .Values.grpcPort }}
+
+The gateway fails closed: once it is pointed here, its HTTP egress depends on
+ate-gress being up. Policies are EgressRoutePolicy objects:
+
+  kubectl get egressroutepolicies

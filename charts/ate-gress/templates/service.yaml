@@ -1,0 +1,24 @@
+# Headless, so the gateway's STRICT_DNS cluster resolves every ready replica
+# and balances ext_proc streams across them. Through a ClusterIP its one
+# long-lived HTTP/2 connection would pin every request to a single pod.
+#
+# The servicedns signer names each selected pod's serving certificate
+# <name>.<namespace>.svc, which is the SNI and SAN the gateway checks.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ate-gress.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ate-gress.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  selector:
+    {{- include "ate-gress.selectorLabels" . | nindent 4 }}
+  ports:
+  - name: grpc
+    port: {{ .Values.grpcPort }}
+    targetPort: grpc
+  - name: metrics
+    port: {{ .Values.metricsPort }}
+    targetPort: metrics

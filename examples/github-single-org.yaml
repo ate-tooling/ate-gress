@@ -1,0 +1,76 @@
+# Let actors in the research atespace read one GitHub organization, "acme",
+# and nothing else on GitHub; lock every other actor out of GitHub entirely.
+#
+# This narrows what Substrate's EgressPolicy already allows. The actors'
+# EgressPolicy still needs https rules for these hosts (so the gateway
+# terminates TLS and ate-gress can see the request), and should inject the
+# credential, ideally a GitHub App installation token or fine-grained token
+# scoped to acme:
+#
+#   rules:
+#   - https:
+#       hostnames: [api.github.com, github.com, codeload.github.com]
+#       effects:
+#         replaceHeaders:
+#         - header: Authorization
+#           prefix: "Bearer "
+#           credentialUri: ate-secret://k8s.io/default/research/github-acme/token
+#
+# Requests these policies cannot check, and so deny:
+#   - POST /graphql names its target in the body, which ate-gress never sees.
+#   - /repositories/{id}, /search/*, /user/*, /gists name no organization in
+#     the path.
+#   - git-receive-pack (push) is not listed.
+---
+# Every actor: GitHub is claimed, and with no routes, nothing is allowed.
+apiVersion: ategress.samueltorres.github.io/v1alpha1
+kind: EgressRoutePolicy
+metadata:
+  name: github-lockdown
+spec:
+  hosts:
+  - host: api.github.com
+  - host: github.com
+  - host: codeload.github.com
+  - host: raw.githubusercontent.com
+---
+# The research atespace: read-only access to acme.
+apiVersion: ategress.samueltorres.github.io/v1alpha1
+kind: EgressRoutePolicy
+metadata:
+  name: github-acme-readonly
+spec:
+  actorSelector:
+    atespaces: [research]
+  hosts:
+  # REST API. Account and repository names are case-insensitive on GitHub.
+  - host: api.github.com
+    routes:
+    - methods: [GET, HEAD]
+      paths:
+      - /orgs/acme
+      - /orgs/acme/**
+      - /repos/acme/*
+      - /repos/acme/*/**
+      caseInsensitive: true
+  # git clone and fetch over smart HTTP; no push.
+  - host: github.com
+    routes:
+    - methods: [GET]
+      paths: [/acme/*/info/refs]
+      caseInsensitive: true
+    - methods: [POST]
+      paths: [/acme/*/git-upload-pack]
+      caseInsensitive: true
+  # Archive downloads (/repos/acme/x/tarball redirects here).
+  - host: codeload.github.com
+    routes:
+    - methods: [GET]
+      paths: [/acme/*/**]
+      caseInsensitive: true
+  # Raw file contents.
+  - host: raw.githubusercontent.com
+    routes:
+    - methods: [GET]
+      paths: [/acme/*/**]
+      caseInsensitive: true
