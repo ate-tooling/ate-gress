@@ -251,7 +251,7 @@ jobs:
           "dist/ate-gress-${VERSION}-crds.yaml"
         want="$(printf '%s\n' "ate-gress-${VERSION}-crds.yaml" "ate-gress-${VERSION}.spdx.json" \
           "ate-gress-${VERSION}.tgz" | LC_ALL=C sort | xargs)"
-        got="$(cd dist && ls | LC_ALL=C sort | xargs)"
+        got="$(find dist -mindepth 1 -maxdepth 1 -printf '%P\n' | LC_ALL=C sort | xargs)"
         if [[ "${got}" != "${want}" ]]; then
           echo "::error::dist/ holds '${got}', want '${want}'"
           exit 1

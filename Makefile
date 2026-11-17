@@ -1,6 +1,9 @@
 CONTROLLER_GEN ?= go run sigs.k8s.io/controller-tools/cmd/controller-gen@v0.20.1
 GOLANGCI_LINT ?= go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
-ACTIONLINT ?= go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+# The image bundles shellcheck, which actionlint runs on workflow scripts;
+# a bare `go run` build silently skips that check where shellcheck is missing.
+ACTIONLINT ?= docker run --rm -v "$(CURDIR):/repo:ro" -w /repo rhysd/actionlint:1.7.12
+SHELLCHECK ?= docker run --rm -v "$(CURDIR):/mnt:ro" -w /mnt koalaman/shellcheck:v0.11.0
 GOVULNCHECK ?= go run golang.org/x/vuln/cmd/govulncheck@v1.8.0
 ZIZMOR ?= docker run --rm -v "$(CURDIR):/src:ro" -w /src ghcr.io/zizmorcore/zizmor:1.18.0
 ENVTEST_K8S_VERSION ?= 1.37.0
@@ -43,6 +46,7 @@ test-envoy: ## Run ate-gress behind a real Envoy configured like Substrate's egr
 lint:
 	$(GOLANGCI_LINT) run ./...
 	$(ACTIONLINT)
+	$(SHELLCHECK) hack/*.sh
 	helm lint $(CHART)
 
 .PHONY: lint-workflows
