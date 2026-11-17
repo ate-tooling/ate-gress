@@ -5,10 +5,10 @@ go 1.27.0
 toolchain go1.27.4
 
 require (
-	github.com/envoyproxy/go-control-plane/envoy v1.37.1-0.20260812071801-353463cc7248
+	github.com/envoyproxy/go-control-plane/envoy v1.40.0
 	github.com/go-logr/logr v1.4.3
 	github.com/prometheus/client_golang v1.24.1
-	google.golang.org/grpc v1.83.2
+	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.12
 	k8s.io/apimachinery v0.37.2
 	k8s.io/client-go v0.37.2
@@ -49,7 +49,7 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
-	github.com/prometheus/client_model v0.6.2 // indirect
+	github.com/prometheus/client_model v0.6.3 // indirect
 	github.com/prometheus/common v0.70.1 // indirect
 	github.com/prometheus/procfs v0.21.1 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
