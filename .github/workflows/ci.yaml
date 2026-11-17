@@ -91,6 +91,9 @@ jobs:
     name: Image
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      # The build record is a run artifact nothing here uses.
+      DOCKER_BUILD_RECORD_UPLOAD: false
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
