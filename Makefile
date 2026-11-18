@@ -9,7 +9,7 @@ ZIZMOR ?= docker run --rm -v "$(CURDIR):/src:ro" -w /src ghcr.io/zizmorcore/zizm
 ENVTEST_K8S_VERSION ?= 1.37.0
 ENVTEST ?= go run sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.24
 CHART := charts/ate-gress
-IMG ?= ghcr.io/samueltorres/ate-gress:dev
+IMG ?= ghcr.io/ate-tooling/ate-gress:dev
 FUZZTIME ?= 10s
 
 .PHONY: generate

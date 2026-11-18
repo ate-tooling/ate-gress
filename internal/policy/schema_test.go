@@ -6,14 +6,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/samueltorres/ate-gress/internal/pathmatch"
+	"github.com/ate-tooling/ate-gress/internal/pathmatch"
 )
 
 // crdPathPattern returns the pattern the generated CRD validates route paths
 // with.
 func crdPathPattern(t testing.TB) *regexp.Regexp {
 	t.Helper()
-	crd, err := os.ReadFile("../../config/crd/ategress.samueltorres.github.io_egressroutepolicies.yaml")
+	crd, err := os.ReadFile("../../config/crd/ategress.ate-tooling.github.io_egressroutepolicies.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}

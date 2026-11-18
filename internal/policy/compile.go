@@ -8,9 +8,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/samueltorres/ate-gress/api/v1alpha1"
-	"github.com/samueltorres/ate-gress/internal/identity"
-	"github.com/samueltorres/ate-gress/internal/pathmatch"
+	"github.com/ate-tooling/ate-gress/api/v1alpha1"
+	"github.com/ate-tooling/ate-gress/internal/identity"
+	"github.com/ate-tooling/ate-gress/internal/pathmatch"
 )
 
 // Snapshot is a compiled, immutable set of policies.

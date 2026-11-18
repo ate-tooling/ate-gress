@@ -6,7 +6,7 @@
   - create
   - patch
 - apiGroups:
-  - ategress.samueltorres.github.io
+  - ategress.ate-tooling.github.io
   resources:
   - egressroutepolicies
   verbs:
@@ -14,7 +14,7 @@
   - list
   - watch
 - apiGroups:
-  - ategress.samueltorres.github.io
+  - ategress.ate-tooling.github.io
   resources:
   - egressroutepolicies/status
   verbs:

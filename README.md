@@ -27,7 +27,7 @@ Substrate must use the Envoy dataplane. Install the chart, then point the
 gateway at it:
 
 ```sh
-helm install ate-gress oci://ghcr.io/samueltorres/charts/ate-gress --version <version> \
+helm install ate-gress oci://ghcr.io/ate-tooling/charts/ate-gress --version <version> \
   -n ate-gress --create-namespace
 
 # With the agent-substrate-operator:
@@ -48,7 +48,7 @@ covers the pipeline and the manual checks.
 ## Policies
 
 ```yaml
-apiVersion: ategress.samueltorres.github.io/v1alpha1
+apiVersion: ategress.ate-tooling.github.io/v1alpha1
 kind: EgressRoutePolicy
 metadata:
   name: github-acme-readonly

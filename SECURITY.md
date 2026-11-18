@@ -2,7 +2,7 @@
 
 ate-gress sits on the egress path of every agent. Please report
 vulnerabilities privately, through
-[GitHub security advisories](https://github.com/samueltorres/ate-gress/security/advisories/new),
+[GitHub security advisories](https://github.com/ate-tooling/ate-gress/security/advisories/new),
 not in a public issue.
 
 Include the version, the policy and request that show the problem, and what

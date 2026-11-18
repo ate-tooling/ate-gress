@@ -1,4 +1,4 @@
-module github.com/samueltorres/ate-gress
+module github.com/ate-tooling/ate-gress
 
 go 1.27.0
 

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/samueltorres/ate-gress/internal/testpki"
+	"github.com/ate-tooling/ate-gress/internal/testpki"
 )
 
 const (

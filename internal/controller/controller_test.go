@@ -22,9 +22,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	"github.com/samueltorres/ate-gress/api/v1alpha1"
-	"github.com/samueltorres/ate-gress/internal/identity"
-	"github.com/samueltorres/ate-gress/internal/policy"
+	"github.com/ate-tooling/ate-gress/api/v1alpha1"
+	"github.com/ate-tooling/ate-gress/internal/identity"
+	"github.com/ate-tooling/ate-gress/internal/policy"
 )
 
 var (

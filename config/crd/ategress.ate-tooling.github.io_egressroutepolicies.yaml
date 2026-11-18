@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
-  name: egressroutepolicies.ategress.samueltorres.github.io
+  name: egressroutepolicies.ategress.ate-tooling.github.io
 spec:
-  group: ategress.samueltorres.github.io
+  group: ategress.ate-tooling.github.io
   names:
     kind: EgressRoutePolicy
     listKind: EgressRoutePolicyList

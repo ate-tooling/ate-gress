@@ -7,8 +7,8 @@ runs [`release.yaml`](../.github/workflows/release.yaml). It publishes:
 
 | Artifact | Where | Signed | Attestations |
 |---|---|---|---|
-| Image, `linux/amd64` and `linux/arm64` | `ghcr.io/samueltorres/ate-gress:X.Y.Z` (and `:X.Y` for full releases) | cosign, keyless | SLSA build provenance, SPDX SBOM |
-| Helm chart, pinned to the image digest | `oci://ghcr.io/samueltorres/charts/ate-gress`, version `X.Y.Z` | cosign, keyless | SLSA build provenance |
+| Image, `linux/amd64` and `linux/arm64` | `ghcr.io/ate-tooling/ate-gress:X.Y.Z` (and `:X.Y` for full releases) | cosign, keyless | SLSA build provenance, SPDX SBOM |
+| Helm chart, pinned to the image digest | `oci://ghcr.io/ate-tooling/charts/ate-gress`, version `X.Y.Z` | cosign, keyless | SLSA build provenance |
 | CRD, chart archive, SBOM, `checksums.txt` | the GitHub release | | SLSA build provenance for each file |
 
 There is no `latest` tag. Deployments pin a version, and the chart pins the
@@ -57,7 +57,7 @@ job is green.
 
 **The first time only:** GHCR creates packages as private. After the first
 run, make `ate-gress` and `charts/ate-gress` public. Do this under the
-package settings at github.com/users/samueltorres/packages, or anonymous
+package settings at github.com/orgs/ate-tooling/packages, or anonymous
 users can't pull or verify them.
 
 **If a run fails** before `github-release`, delete the tag and push it again
@@ -80,37 +80,37 @@ By hand, for the image:
 
 ```sh
 VERSION=0.1.0
-IMAGE=ghcr.io/samueltorres/ate-gress:$VERSION
+IMAGE=ghcr.io/ate-tooling/ate-gress:$VERSION
 
 cosign verify "$IMAGE" \
-  --certificate-identity "https://github.com/samueltorres/ate-gress/.github/workflows/release.yaml@refs/tags/v$VERSION" \
+  --certificate-identity "https://github.com/ate-tooling/ate-gress/.github/workflows/release.yaml@refs/tags/v$VERSION" \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 
 # Build provenance: which commit, which workflow, which runner.
-gh attestation verify "oci://$IMAGE" --repo samueltorres/ate-gress \
-  --signer-workflow github.com/samueltorres/ate-gress/.github/workflows/release.yaml \
+gh attestation verify "oci://$IMAGE" --repo ate-tooling/ate-gress \
+  --signer-workflow github.com/ate-tooling/ate-gress/.github/workflows/release.yaml \
   --source-ref "refs/tags/v$VERSION" --deny-self-hosted-runners
 
 # The SBOM, verified and printed.
-gh attestation verify "oci://$IMAGE" --repo samueltorres/ate-gress \
+gh attestation verify "oci://$IMAGE" --repo ate-tooling/ate-gress \
   --predicate-type https://spdx.dev/Document/v2.3 --format json \
   | jq '.[0].verificationResult.statement.predicate'
 ```
 
 The chart is verified the same way, using
-`ghcr.io/samueltorres/charts/ate-gress:$VERSION`. It renders the image by
+`ghcr.io/ate-tooling/charts/ate-gress:$VERSION`. It renders the image by
 digest, so verifying the chart pins the image:
 
 ```sh
-helm template ate-gress oci://ghcr.io/samueltorres/charts/ate-gress --version "$VERSION" | grep image:
+helm template ate-gress oci://ghcr.io/ate-tooling/charts/ate-gress --version "$VERSION" | grep image:
 ```
 
 For a release file:
 
 ```sh
-gh release download "v$VERSION" --repo samueltorres/ate-gress
+gh release download "v$VERSION" --repo ate-tooling/ate-gress
 sha256sum --check checksums.txt
-gh attestation verify ate-gress-$VERSION-crds.yaml --repo samueltorres/ate-gress
+gh attestation verify ate-gress-$VERSION-crds.yaml --repo ate-tooling/ate-gress
 ```
 
 ### Enforcing it in the cluster
@@ -119,4 +119,4 @@ To have the cluster refuse unsigned images, use an admission policy, such as a
 [Sigstore policy-controller](https://docs.sigstore.dev/policy-controller/overview/)
 `ClusterImagePolicy` or a Kyverno `verifyImages` rule. Match on the same
 issuer, plus a subject regular expression:
-`^https://github.com/samueltorres/ate-gress/.github/workflows/release.yaml@refs/tags/v`.
+`^https://github.com/ate-tooling/ate-gress/.github/workflows/release.yaml@refs/tags/v`.

@@ -8,8 +8,8 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/samueltorres/ate-gress/api/v1alpha1"
-	"github.com/samueltorres/ate-gress/internal/identity"
+	"github.com/ate-tooling/ate-gress/api/v1alpha1"
+	"github.com/ate-tooling/ate-gress/internal/identity"
 )
 
 // githubPolicies is the layering examples/github-single-org.yaml recommends:

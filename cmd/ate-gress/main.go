@@ -24,12 +24,12 @@ import (
 	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	"github.com/samueltorres/ate-gress/api/v1alpha1"
-	"github.com/samueltorres/ate-gress/internal/controller"
-	"github.com/samueltorres/ate-gress/internal/extproc"
-	"github.com/samueltorres/ate-gress/internal/identity"
-	"github.com/samueltorres/ate-gress/internal/policy"
-	"github.com/samueltorres/ate-gress/internal/tlsconfig"
+	"github.com/ate-tooling/ate-gress/api/v1alpha1"
+	"github.com/ate-tooling/ate-gress/internal/controller"
+	"github.com/ate-tooling/ate-gress/internal/extproc"
+	"github.com/ate-tooling/ate-gress/internal/identity"
+	"github.com/ate-tooling/ate-gress/internal/policy"
+	"github.com/ate-tooling/ate-gress/internal/tlsconfig"
 )
 
 // stringList is a repeatable string flag.
@@ -132,7 +132,7 @@ func run(ctx context.Context, o options, log *slog.Logger) error {
 		Metrics:                       metricsserver.Options{BindAddress: o.metricsAddress},
 		HealthProbeBindAddress:        o.probeAddress,
 		LeaderElection:                o.leaderElect,
-		LeaderElectionID:              "ate-gress.ategress.samueltorres.github.io",
+		LeaderElectionID:              "ate-gress.ategress.ate-tooling.github.io",
 		LeaderElectionNamespace:       o.leaderElectionNS,
 		LeaderElectionReleaseOnCancel: true,
 		// The ext_proc runnable's drain and stop must fit.
