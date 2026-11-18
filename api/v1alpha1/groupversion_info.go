@@ -1,7 +1,7 @@
 // Package v1alpha1 holds the EgressRoutePolicy API.
 //
 // +kubebuilder:object:generate=true
-// +groupName=ategress.samueltorres.github.io
+// +groupName=ategress.ate-tooling.github.io
 package v1alpha1
 
 import (
@@ -12,7 +12,7 @@ import (
 
 var (
 	// GroupVersion is the group and version of the EgressRoutePolicy API.
-	GroupVersion = schema.GroupVersion{Group: "ategress.samueltorres.github.io", Version: "v1alpha1"}
+	GroupVersion = schema.GroupVersion{Group: "ategress.ate-tooling.github.io", Version: "v1alpha1"}
 
 	// SchemeBuilder registers the API types with a scheme.
 	SchemeBuilder = runtime.NewSchemeBuilder(addKnownTypes)

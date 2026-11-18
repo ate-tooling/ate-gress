@@ -5,7 +5,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/samueltorres/ate-gress/internal/policy"
+	"github.com/ate-tooling/ate-gress/internal/policy"
 )
 
 // Metrics are the request-path metrics. Labels are bounded: actors, hosts,

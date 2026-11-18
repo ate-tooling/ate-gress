@@ -23,8 +23,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/samueltorres/ate-gress/internal/identity"
-	"github.com/samueltorres/ate-gress/internal/policy"
+	"github.com/ate-tooling/ate-gress/internal/identity"
+	"github.com/ate-tooling/ate-gress/internal/policy"
 )
 
 // IdentityAttribute is the CEL request attribute that carries the actor's

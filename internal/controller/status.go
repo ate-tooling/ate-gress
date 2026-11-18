@@ -10,8 +10,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	"github.com/samueltorres/ate-gress/api/v1alpha1"
-	"github.com/samueltorres/ate-gress/internal/policy"
+	"github.com/ate-tooling/ate-gress/api/v1alpha1"
+	"github.com/ate-tooling/ate-gress/internal/policy"
 )
 
 // maxMessage is the longest condition message the API accepts.
@@ -32,8 +32,8 @@ func (r *StatusReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-// +kubebuilder:rbac:groups=ategress.samueltorres.github.io,resources=egressroutepolicies,verbs=get;list;watch
-// +kubebuilder:rbac:groups=ategress.samueltorres.github.io,resources=egressroutepolicies/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=ategress.ate-tooling.github.io,resources=egressroutepolicies,verbs=get;list;watch
+// +kubebuilder:rbac:groups=ategress.ate-tooling.github.io,resources=egressroutepolicies/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // Reconcile compiles one policy and records the outcome.

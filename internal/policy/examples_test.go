@@ -8,8 +8,8 @@ import (
 
 	"sigs.k8s.io/yaml"
 
-	"github.com/samueltorres/ate-gress/api/v1alpha1"
-	"github.com/samueltorres/ate-gress/internal/identity"
+	"github.com/ate-tooling/ate-gress/api/v1alpha1"
+	"github.com/ate-tooling/ate-gress/internal/identity"
 )
 
 func loadExample(t *testing.T, name string) []v1alpha1.EgressRoutePolicy {

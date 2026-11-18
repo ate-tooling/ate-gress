@@ -1,5 +1,5 @@
 image:
-  repository: ghcr.io/samueltorres/ate-gress
+  repository: ghcr.io/ate-tooling/ate-gress
   # Defaults to the chart's appVersion.
   tag: ""
   # Pins the image by digest. Released charts set it to the image built and

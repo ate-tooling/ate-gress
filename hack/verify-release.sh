@@ -12,9 +12,9 @@ set -euo pipefail
 
 version="${1:?usage: $0 <version> [image] [charts] [owner/repo]}"
 version="${version#v}"
-image="${2:-ghcr.io/samueltorres/ate-gress}"
-charts="${3:-ghcr.io/samueltorres/charts}"
-repo="${4:-samueltorres/ate-gress}"
+image="${2:-ghcr.io/ate-tooling/ate-gress}"
+charts="${3:-ghcr.io/ate-tooling/charts}"
+repo="${4:-ate-tooling/ate-gress}"
 tag="v${version}"
 
 workflow="${repo}/.github/workflows/release.yaml"

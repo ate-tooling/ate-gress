@@ -49,7 +49,7 @@ cleanup() {
   if [[ ${status} -ne 0 ]]; then diagnostics || true; fi
   if [[ "${KEEP:-}" != "1" ]]; then
     for a in e2e-research e2e-other; do "${kubectl_ate[@]}" delete actor "${a}" -a "${atespace}" >/dev/null 2>&1 || true; done
-    "${kubectl[@]}" delete egressroutepolicy -l e2e.ategress.samueltorres.github.io/suite=kind --ignore-not-found >/dev/null 2>&1 || true
+    "${kubectl[@]}" delete egressroutepolicy -l e2e.ategress.ate-tooling.github.io/suite=kind --ignore-not-found >/dev/null 2>&1 || true
   fi
   rm -rf "${work}"
   exit "${status}"
@@ -131,11 +131,11 @@ EOF
 step "applying EgressRoutePolicies"
 "${kubectl[@]}" apply -f - <<EOF
 # Nobody reaches the target or api.github.com except as a later policy allows.
-apiVersion: ategress.samueltorres.github.io/v1alpha1
+apiVersion: ategress.ate-tooling.github.io/v1alpha1
 kind: EgressRoutePolicy
 metadata:
   name: e2e-lockdown
-  labels: {e2e.ategress.samueltorres.github.io/suite: kind}
+  labels: {e2e.ategress.ate-tooling.github.io/suite: kind}
 spec:
   hosts:
   - host: ${target}
@@ -143,11 +143,11 @@ spec:
 ---
 # e2e-research may read the acme "org" on the target, and the kubernetes org on
 # GitHub.
-apiVersion: ategress.samueltorres.github.io/v1alpha1
+apiVersion: ategress.ate-tooling.github.io/v1alpha1
 kind: EgressRoutePolicy
 metadata:
   name: e2e-research
-  labels: {e2e.ategress.samueltorres.github.io/suite: kind}
+  labels: {e2e.ategress.ate-tooling.github.io/suite: kind}
 spec:
   actorSelector:
     atespaces: [${atespace}]
@@ -164,7 +164,7 @@ spec:
       paths: [/repos/kubernetes/*, /repos/kubernetes/*/**, /orgs/kubernetes]
       caseInsensitive: true
 EOF
-"${kubectl[@]}" wait egressroutepolicy -l e2e.ategress.samueltorres.github.io/suite=kind \
+"${kubectl[@]}" wait egressroutepolicy -l e2e.ategress.ate-tooling.github.io/suite=kind \
   --for=condition=Accepted --timeout=1m
 
 step "creating actors"

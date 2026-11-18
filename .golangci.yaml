@@ -27,4 +27,4 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/samueltorres/ate-gress
+        - github.com/ate-tooling/ate-gress

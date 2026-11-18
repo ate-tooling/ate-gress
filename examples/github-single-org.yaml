@@ -23,7 +23,7 @@
 #   - git-receive-pack (push) is not listed.
 ---
 # Every actor: GitHub is claimed, and with no routes, nothing is allowed.
-apiVersion: ategress.samueltorres.github.io/v1alpha1
+apiVersion: ategress.ate-tooling.github.io/v1alpha1
 kind: EgressRoutePolicy
 metadata:
   name: github-lockdown
@@ -35,7 +35,7 @@ spec:
   - host: raw.githubusercontent.com
 ---
 # The research atespace: read-only access to acme.
-apiVersion: ategress.samueltorres.github.io/v1alpha1
+apiVersion: ategress.ate-tooling.github.io/v1alpha1
 kind: EgressRoutePolicy
 metadata:
   name: github-acme-readonly

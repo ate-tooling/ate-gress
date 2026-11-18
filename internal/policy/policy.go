@@ -9,8 +9,8 @@ package policy
 import (
 	"strings"
 
-	"github.com/samueltorres/ate-gress/internal/identity"
-	"github.com/samueltorres/ate-gress/internal/pathmatch"
+	"github.com/ate-tooling/ate-gress/internal/identity"
+	"github.com/ate-tooling/ate-gress/internal/pathmatch"
 )
 
 // Request is what Decide needs to know about an HTTP request.

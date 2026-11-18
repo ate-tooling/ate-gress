@@ -247,7 +247,7 @@ jobs:
         name: chart
         path: dist
     - run: |
-        cp config/crd/ategress.samueltorres.github.io_egressroutepolicies.yaml \
+        cp config/crd/ategress.ate-tooling.github.io_egressroutepolicies.yaml \
           "dist/ate-gress-${VERSION}-crds.yaml"
         want="$(printf '%s\n' "ate-gress-${VERSION}-crds.yaml" "ate-gress-${VERSION}.spdx.json" \
           "ate-gress-${VERSION}.tgz" | LC_ALL=C sort | xargs)"

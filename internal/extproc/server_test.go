@@ -25,11 +25,11 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/samueltorres/ate-gress/api/v1alpha1"
-	"github.com/samueltorres/ate-gress/internal/identity"
-	"github.com/samueltorres/ate-gress/internal/policy"
-	"github.com/samueltorres/ate-gress/internal/testpki"
-	"github.com/samueltorres/ate-gress/internal/tlsconfig"
+	"github.com/ate-tooling/ate-gress/api/v1alpha1"
+	"github.com/ate-tooling/ate-gress/internal/identity"
+	"github.com/ate-tooling/ate-gress/internal/policy"
+	"github.com/ate-tooling/ate-gress/internal/testpki"
+	"github.com/ate-tooling/ate-gress/internal/tlsconfig"
 )
 
 const (
