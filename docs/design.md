@@ -171,13 +171,14 @@ record.
   broken policy now denies traffic that used to flow, so it is made loud.
   The policy's `Accepted` condition is `False` and says what the policy still
   claims. Every replica logs the same at `WARN` on each snapshot, and counts
-  the policy in `ategress_policies{state="rejected"}`. A request denied on a
-  host that only rejected policies claim for its actor is denied with the
-  reason `invalid_policy`, which nothing else uses. Where an accepted
-  `Enforce` policy claims the host as well, the request would be denied
-  without the rejected policy, and keeps the reason `no_route` or `path`; the
-  rejected policy's `deny` count in `ategress_policy_decisions_total` covers
-  both.
+  the policy in `ategress_policies{state="rejected"}`. A request is denied
+  with the reason `invalid_policy`, which nothing else uses, when every
+  `Enforce` policy that claims its host for its actor was rejected; with no
+  `Enforce` claim, a request that only rejected `Audit` policies claim is
+  audited with that reason. Where an accepted `Enforce` policy claims the
+  host as well, the request would be denied without the rejected policy, and
+  keeps the reason `no_route` or `path`; the rejected policy's `deny` count
+  in `ategress_policy_decisions_total` covers both.
 
 ## API versions
 
@@ -196,7 +197,10 @@ leave every policy as it was.
 - **One version inside ate-gress.** The informer and the status writer use
   `v1alpha1`. The API server hands them every policy as `v1alpha1`,
   whichever version it was written as, so a second informer would only see
-  the same objects twice.
+  the same objects twice. `ategressctl` reads files of either version, checks
+  each against its own version's schema, and converts it to `v1alpha1` as
+  the API server does; that conversion fails, rather than drops a field, if
+  the versions ever differ (`internal/policyfile`).
 - **Stored as `v1alpha1`, for now.** The API server records every version a
   CRD has stored objects in, in `status.storedVersions`, and refuses a CRD
   that lacks one of them. Had this release stored `v1beta1`, a rollback to

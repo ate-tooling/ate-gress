@@ -63,13 +63,20 @@ FUZZTIME=5m`, and say how long in the pull request.
 
 `make generate` writes:
 
-- `api/v1alpha1/zz_generated.deepcopy.go`;
-- `config/crd/`, and a copy of it in `charts/ate-gress/crds/`;
+- `api/v1alpha1/zz_generated.deepcopy.go` and
+  `api/v1beta1/zz_generated.deepcopy.go`;
+- `config/crd/`, and the chart's copy of it,
+  `charts/ate-gress/templates/crds.yaml`, which
+  `hack/generate-chart-crds.sh` writes;
 - `config/rbac/role.yaml`, and its rules in
   `charts/ate-gress/files/clusterrole-rules.yaml`.
 
 Never edit these by hand. Change the Go types or the `+kubebuilder` markers
-and run `make generate`. `make verify` regenerates them, runs `go mod tidy`,
+and run `make generate`. The two API versions have one schema, so a change to
+`api/v1alpha1/egressroutepolicy_types.go` is copied to
+`api/v1beta1/egressroutepolicy_types.go`; tests in `api/` fail until the two
+files differ only in their package and the storage-version marker.
+[docs/design.md](docs/design.md#api-versions) says why. `make verify` regenerates them, runs `go mod tidy`,
 and fails if `api`, `config`, the chart, `go.mod` or `go.sum` differ from
 what is committed, so a stale file fails CI.
 
@@ -89,7 +96,7 @@ complete only when all of them have moved together.
 2. **The schema pattern and the compiler accept the same templates.** The
    CRD validates a path template with one OpenAPI pattern, in the
    `+kubebuilder:validation:items:Pattern` marker on `Route.Paths` in
-   `api/v1alpha1/egressroutepolicy_types.go`. `pathmatch.Compile` is what the
+   `api/v1alpha1/egressroutepolicy_types.go` and its `v1beta1` copy. `pathmatch.Compile` is what the
    decision relies on. `FuzzSchemaAgreesWithCompiler` reads the generated CRD
    and fails if the two disagree on any input. Change both, run `make
    generate`, and add seeds for the new syntax to the fuzz target.
@@ -99,8 +106,12 @@ complete only when all of them have moved together.
    globs, methods and paths again, with the same patterns. A new field that
    the schema validates needs the same check in `internal/policy/compile.go`,
    a case in `TestCompileRejects`, and a case in `TestSchemaRejects`, which
-   runs against a real API server. A policy the compiler rejects is left out
-   of the snapshot whole: its allows and its host claims.
+   runs against a real API server. A policy the compiler rejects fails
+   closed: it keeps its host claims with no routes, as `rejectedClaims` in
+   `internal/policy/compile.go` reads them, so it allows nothing and denies
+   on its hosts with reason `invalid_policy`. A new field that a rejected
+   policy could be misread through needs the same conservative reading
+   there.
 
 4. **`referenceDecide` is updated by hand, not by copying.** `FuzzDecide`
    compares `Decide` with the reference implementation in

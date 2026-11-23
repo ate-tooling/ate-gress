@@ -180,10 +180,12 @@ hosts go on allowing. In detail:
   cannot be claimed.
 
 The condition's message says what is wrong and what the policy still claims,
-and every replica logs it at `WARN`. A request denied on a host that only
-rejected policies claim carries the reason `invalid_policy`; if an accepted
-`Enforce` policy claims the host too, the reason is `no_route` or `path` as
-it would be without the rejected one. Alert on either of:
+and every replica logs it at `WARN`. A request denied on a host where every
+`Enforce` policy claiming it for the actor was rejected carries the reason
+`invalid_policy` (and a host only rejected `Audit` policies claim is audited
+with it); if an accepted `Enforce` policy claims the host too, the reason is
+`no_route` or `path` as it would be without the rejected one. Alert on
+either of:
 
 ```promql
 ategress_policies{state="rejected"} > 0
@@ -242,7 +244,8 @@ tests:
     reason: no_route
 ```
 
-Binaries for Linux and macOS are attached to each release, and `make
+Every policy in [`examples/`](examples/README.md) has a test file next to
+it. Binaries for Linux and macOS are attached to each release, and `make
 build-ategressctl` builds one. [docs/ategressctl.md](docs/ategressctl.md) has
 the test-file format, the lint codes, the JSON output and the exit codes.
 
@@ -253,7 +256,7 @@ the test-file format, the lint codes, the JSON output and the exit codes.
 | Ports | `9443` ext_proc (gRPC, mTLS), `8080` metrics, `8081` `/healthz` `/readyz` |
 | Readiness | Not ready until the first policy snapshot is built from a synced cache |
 | Metrics | Prometheus, on `/metrics`; listed under [Metrics](#metrics) |
-| Logs | JSON. Denials, audits, and the allowed requests of `logAllowed` policies at `INFO`; every decision at `DEBUG`. Header values are never logged, because they may hold an injected credential. At `INFO`, denials and audits are rate-limited for each actor, reason and policy: `--deny-log-burst` lines (default 10), then `--deny-log-rate` lines a second (default 1; `0` disables the limit). The next line logged carries the number dropped as `suppressed`, and `ategress_decision_logs_suppressed_total` counts them. `logAllowed` records are never dropped, and `ategress_decisions_total` counts every decision |
+| Logs | JSON. Denials, audits, and the allowed requests of `logAllowed` policies at `INFO`; every decision at `DEBUG`. Header values are never logged, because they may hold an injected credential. At `INFO`, denials and audits are rate-limited for each actor, reason and policy: `--deny-log-burst` lines (default 10), then `--deny-log-rate` lines a second (default 1; `0` disables the limit). The next line logged carries the number dropped as `suppressed` (or `suppressed_untracked`, counted across keys, when more keys are busy than the limiter tracks), and `ategress_decision_logs_suppressed_total` counts them. `logAllowed` records are never dropped, and `ategress_decisions_total` counts every decision |
 | Shutdown | On SIGTERM it goes NOT_SERVING, serves for `--drain-delay` while the gateway's DNS moves on, then drains streams |
 | Scaling | Stateless; every replica serves from its own informer cache. The headless Service lets the gateway balance across replicas |
 
@@ -392,9 +395,12 @@ hack/substrate-kind-up.sh <substrate checkout>   # create the cluster and instal
 hack/e2e-kind.sh <substrate checkout>            # install ate-gress and drive actor traffic
 ```
 
-CI runs the first group on every pull request. Nightly, it runs the
-end-to-end test against a pinned Substrate release and Substrate's `main`,
-the Envoy test against Envoy's `main`, and the fuzzers with a saved corpus.
+On every pull request CI runs the tests, lint and the workflow audit, the
+Envoy test on the gateway's Envoy, the newest stable Envoy and Envoy's `dev`
+build, the chart upgrade and rollback, and the fuzzers for the targets the
+change can affect. Nightly, it runs the end-to-end test against a pinned
+Substrate release and Substrate's `main`, the Envoy tests again, and every
+fuzzer with a saved corpus.
 [docs/ci.md](docs/ci.md) says what runs when, and what to do when a nightly
 run fails.
 

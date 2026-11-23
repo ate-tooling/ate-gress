@@ -63,6 +63,9 @@ Let **E** be the `Enforce` policies in C and **A** the `Audit` ones.
 | E is not empty | allowed if the path is canonical and a route of **some policy in E** matches; otherwise denied. Policies in A have no effect on the outcome |
 | E is empty, A is not | allowed. Recorded as an audit unless a route of some policy in A matches |
 
+A policy the compiler rejected is in C too, with no routes: it claims like a
+lockdown.
+
 Three properties follow.
 
 1. **Routes are a union.** Within E, a request is allowed if any policy
@@ -276,12 +279,14 @@ Left open:
   useful for a tenant rolling out its own policy and is harmless in a
   separate layer. `logAllowed` lets a tenant raise the log volume of a shared
   component; it may need a per-binding switch.
-- **What happens to a tenant policy the compiler rejects.** Today a rejected
-  cluster policy is left out whole, so its hosts are no longer claimed and
-  its restriction disappears. The same rule in the tenant layer means a
-  tenant's invalid policy quietly stops narrowing. Failing the other way,
-  keeping the claim and dropping the routes, denies everything on those
-  hosts. This deserves its own decision, for both layers.
+- **What happens to a tenant policy the compiler rejects.** A rejected
+  cluster policy fails closed: it keeps its claims and drops its routes, so
+  it denies everything on its hosts, with reason `invalid_policy`, unless
+  another `Enforce` policy allows the request. Leaving it out instead, as
+  releases up to 0.1.0-rc.4 did, released its hosts and made its restriction
+  disappear. The same rule in the tenant layer would deny a
+  tenant's atespace those hosts until the tenant fixes its policy. Whether
+  that is the right rule there is still to decide.
 - **How an administrator spells "this atespace may do anything on this
   host"** as a ceiling, given that no template covers trailing slashes at
   every depth.
