@@ -8,9 +8,11 @@ import (
 	"github.com/ate-tooling/ate-gress/internal/policy"
 )
 
-// Metrics are the request-path metrics. Labels are bounded: actors, hosts,
-// and policies are deliberately absent, and belong in the decision log.
+// Metrics are the request-path metrics. Labels are bounded: actors and hosts
+// are deliberately absent, and belong in the decision log. Policies are a
+// label of one metric only, which PolicyCollector serves.
 type Metrics struct {
+	transport *transportMetrics
 	decisions *prometheus.CounterVec
 	duration  prometheus.Histogram
 
@@ -21,6 +23,7 @@ type Metrics struct {
 // NewMetrics registers the request-path metrics with reg.
 func NewMetrics(reg prometheus.Registerer) *Metrics {
 	m := &Metrics{
+		transport: newTransportMetrics(reg),
 		decisions: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "ategress_decisions_total",
 			Help: "Requests decided, by outcome (allow, deny, audit) and reason.",

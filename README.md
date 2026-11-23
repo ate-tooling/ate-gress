@@ -102,7 +102,8 @@ spec:
 - **`enforcementMode: Audit`** allows the request and records the would-be
   denial (log and `ategress_decisions_total{decision="audit"}`), so you can
   roll out before you enforce. An `Enforce` policy on the same host always
-  takes precedence.
+  takes precedence. [Per-policy decisions](#per-policy-decisions) says when
+  an `Audit` policy is safe to switch.
 - **Paths** are templates: literal segments, `*` for one segment, `**` for one
   or more trailing segments. A template ending in `/` matches that one
   trailing slash, as in a registry's `GET /v2/`; `*` and `**` never match the
@@ -137,10 +138,117 @@ by path; `POST /graphql` is the main case.
 |---|---|
 | Ports | `9443` ext_proc (gRPC, mTLS), `8080` metrics, `8081` `/healthz` `/readyz` |
 | Readiness | Not ready until the first policy snapshot is built from a synced cache |
-| Metrics | `ategress_decisions_total{decision,reason}`, `ategress_decision_duration_seconds`, `ategress_snapshot_generation`, `ategress_policies{state}` |
+| Metrics | Prometheus, on `/metrics`; listed under [Metrics](#metrics) |
 | Logs | JSON. Denials, audits, and the allowed requests of `logAllowed` policies at `INFO`; every decision at `DEBUG`. Header values are never logged, because they may hold an injected credential. At `INFO`, denials and audits are rate-limited for each actor, reason and policy: `--deny-log-burst` lines (default 10), then `--deny-log-rate` lines a second (default 1; `0` disables the limit). The next line logged carries the number dropped as `suppressed`, and `ategress_decision_logs_suppressed_total` counts them. `logAllowed` records are never dropped, and `ategress_decisions_total` counts every decision |
 | Shutdown | On SIGTERM it goes NOT_SERVING, serves for `--drain-delay` while the gateway's DNS moves on, then drains streams |
 | Scaling | Stateless; every replica serves from its own informer cache. The headless Service lets the gateway balance across replicas |
+
+### Metrics
+
+Requests:
+
+- `ategress_decisions_total{decision,reason}`: requests decided, by outcome
+  (`allow`, `deny`, `audit`) and reason.
+- `ategress_decision_duration_seconds`: time to decide a request.
+- `ategress_policy_decisions_total{policy,decision}`: requests counted against
+  each policy, described [below](#per-policy-decisions).
+- `ategress_decision_logs_suppressed_total`: denial and audit log records
+  dropped by the rate limit.
+- `ategress_active_streams`: ext_proc streams open. The gateway opens one for
+  each HTTP request.
+
+Policies:
+
+- `ategress_snapshot_generation`: snapshots built since the process started.
+- `ategress_policies{state}`: policies in the snapshot in effect, `accepted`
+  or `rejected`.
+- `ategress_snapshot_last_build_timestamp_seconds`: when the snapshot in
+  effect was built; `0` before the first. A replica builds one when it starts
+  and on every policy change, so this is old wherever policies are stable.
+- `ategress_snapshot_policies_hash`: a hash of the names, UIDs and generations
+  of the policies the snapshot was built from. Replicas serving the same
+  policies report the same value, whenever each of them built its snapshot.
+
+TLS:
+
+- `ategress_tls_certificate_expiry_timestamp_seconds`: not-after time of the
+  serving certificate in the credential bundle. It is read from the file at
+  each scrape, so it follows a rotation even if no new connection has used
+  the certificate yet, and it is absent while the bundle cannot be loaded.
+- `ategress_tls_reload_failures_total{file}`: handshakes refused because the
+  `credential_bundle` or the `client_ca_bundle` could not be loaded.
+- `ategress_tls_handshake_failures_total{reason}`: connections refused in the
+  TLS handshake. `client_identity` is a client whose certificate verified but
+  is not the gateway's. `client_certificate` is a certificate that did not
+  verify against the client CA bundle. `other` is everything else: no
+  certificate, not TLS 1.3, a timeout, or TLS material ate-gress could not
+  load. A connection closed before it sent anything is not counted.
+
+Build:
+
+- `ategress_build_info{version,goversion}`: always `1`.
+
+No metric carries an actor, a host, a path or a header value; those are in
+the decision log.
+
+The gateway fails closed, so these are worth alerting on before they become
+denied egress:
+
+```promql
+# The serving certificate is not being rotated. Pick a threshold shorter
+# than the time the kubelet rotates ahead of expiry.
+ategress_tls_certificate_expiry_timestamp_seconds - time() < 3600
+# The gateway cannot connect.
+increase(ategress_tls_reload_failures_total[5m]) > 0
+increase(ategress_tls_handshake_failures_total{reason="client_certificate"}[5m]) > 0
+# A replica is serving policies the others are not.
+max(ategress_snapshot_policies_hash) != min(ategress_snapshot_policies_hash)
+```
+
+Give the last one a `for:` of a few minutes: replicas disagree for a moment
+on every policy change. The build timestamp cannot stand in for it, because a
+replica that restarts builds a new snapshot from unchanged policies.
+
+### Per-policy decisions
+
+`ategress_policy_decisions_total{policy,decision}` counts requests to claimed
+hosts against the policies involved. It is the only metric with a policy
+label. Every policy in the snapshot in effect has all three series, from
+zero.
+
+- `allow`: the policy's route allowed the request.
+- `deny`: the request was denied, and this is an `Enforce` policy that
+  claimed its host for its actor. A denial means no such policy had a route
+  for the request, so each of them counts it. This is not the `policy` field
+  of the decision log, which names only the first policy by name that claimed
+  the host, and that one may be an `Audit` policy.
+- `audit`: the request was allowed, and it would have been denied had this
+  `Audit` policy, alone, been in `Enforce`. That is every request to a host
+  the policy claims for the actor that it has no route for, unless an
+  `Enforce` policy claims the host as well, because then switching this one
+  can only allow more.
+
+One request can count against several policies, so the series do not add up
+to `ategress_decisions_total`. In particular, a request that one `Audit`
+policy allows and another has no route for is an `allow` for the first and an
+`audit` for the second, while `ategress_decisions_total` and the decision log
+record a plain `allow`.
+
+An `Audit` policy is safe to switch to `Enforce` when its `audit` series has
+stopped growing on every replica over a period that covers the traffic you
+expect:
+
+```promql
+sum by (policy) (increase(ategress_policy_decisions_total{decision="audit"}[7d])) == 0
+```
+
+Switching several policies at once is safe when that holds for each of them.
+
+The counts are per replica and start again from zero when the replica
+restarts. They follow the policy's name: a policy that is edited, or switched
+between `Audit` and `Enforce`, keeps its counts. A policy that is deleted or
+rejected loses its series at the next snapshot, and starts from zero if it
+comes back.
 
 ## Development
 

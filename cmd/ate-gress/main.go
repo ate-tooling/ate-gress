@@ -137,9 +137,13 @@ func run(ctx context.Context, o options, log *slog.Logger) error {
 		CredentialBundle: o.credentialBundle,
 		ClientCAs:        o.clientCAs,
 		AllowedClientIDs: o.allowedClients,
+		Registerer:       ctrlmetrics.Registry,
 	})
 	if err != nil {
 		return fmt.Errorf("loading TLS material: %w", err)
+	}
+	if err := registerBuildInfo(ctrlmetrics.Registry); err != nil {
+		return err
 	}
 
 	scheme := runtime.NewScheme()
@@ -176,6 +180,9 @@ func run(ctx context.Context, o options, log *slog.Logger) error {
 		Listener: lis, Server: gs, Health: hs, Log: log,
 		DrainDelay: o.drainDelay, StopTimeout: o.stopTimeout,
 	}); err != nil {
+		return err
+	}
+	if err := ctrlmetrics.Registry.Register(extproc.NewPolicyCollector(store)); err != nil {
 		return err
 	}
 	if err := mgr.Add(&controller.SnapshotBuilder{

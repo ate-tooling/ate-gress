@@ -5,6 +5,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
 	"slices"
 	"strings"
@@ -119,14 +120,34 @@ func (b *SnapshotBuilder) build(ctx context.Context) error {
 		b.Metrics.generation.Set(float64(gen))
 		b.Metrics.policies.WithLabelValues("accepted").Set(float64(len(results) - rejected))
 		b.Metrics.policies.WithLabelValues("rejected").Set(float64(rejected))
+		b.Metrics.lastBuild.SetToCurrentTime()
+		b.Metrics.policiesHash.Set(policiesHash(list.Items))
 	}
 	return nil
 }
 
+// policiesHash identifies the objects a snapshot was built from: their
+// names, UIDs and generations, which is everything a status write leaves
+// alone. Replicas whose caches hold the same policies report the same value
+// however long ago each of them built its snapshot, so one that has stopped
+// hearing about changes stands out. It is 48 bits, which a float64 gauge
+// holds exactly. policies must be sorted by name.
+func policiesHash(policies []v1alpha1.EgressRoutePolicy) float64 {
+	h := fnv.New64a()
+	for i := range policies {
+		p := &policies[i]
+		// Neither a name nor a UID contains a NUL.
+		fmt.Fprintf(h, "%s\x00%s\x00%d\x00", p.Name, p.UID, p.Generation)
+	}
+	return float64(h.Sum64() >> 16)
+}
+
 // SnapshotMetrics describe the snapshot in effect.
 type SnapshotMetrics struct {
-	generation prometheus.Gauge
-	policies   *prometheus.GaugeVec
+	generation   prometheus.Gauge
+	policies     *prometheus.GaugeVec
+	lastBuild    prometheus.Gauge
+	policiesHash prometheus.Gauge
 }
 
 // NewSnapshotMetrics registers the snapshot metrics with reg.
@@ -140,7 +161,15 @@ func NewSnapshotMetrics(reg prometheus.Registerer) *SnapshotMetrics {
 			Name: "ategress_policies",
 			Help: "EgressRoutePolicy objects in the snapshot in effect, by state (accepted, rejected).",
 		}, []string{"state"}),
+		lastBuild: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "ategress_snapshot_last_build_timestamp_seconds",
+			Help: "When the snapshot in effect was built, in seconds since the epoch; 0 before the first.",
+		}),
+		policiesHash: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "ategress_snapshot_policies_hash",
+			Help: "Hash of the names, UIDs and generations of the EgressRoutePolicy objects the snapshot in effect was built from. Replicas serving the same policies report the same value.",
+		}),
 	}
-	reg.MustRegister(m.generation, m.policies)
+	reg.MustRegister(m.generation, m.policies, m.lastBuild, m.policiesHash)
 	return m
 }

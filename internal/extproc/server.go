@@ -62,6 +62,8 @@ func NewServer(store *policy.Store, parser *identity.Parser, log *slog.Logger, m
 // Process handles one ext_proc stream, which Envoy opens per HTTP request.
 func (s *Server) Process(stream extprocv3.ExternalProcessor_ProcessServer) error {
 	ctx := stream.Context()
+	s.metrics.transport.streams.Inc()
+	defer s.metrics.transport.streams.Dec()
 	for {
 		req, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
@@ -137,11 +139,11 @@ func (s *Server) decide(req *extprocv3.ProcessingRequest, h *extprocv3.HttpHeade
 		return pr, policy.Decision{Reason: policy.ReasonIdentity}
 	}
 	pr.Actor = actor
-	snap := s.store.Load()
-	if snap == nil {
+	live := s.store.Live()
+	if live == nil {
 		return pr, policy.Decision{Reason: policy.ReasonNotReady}
 	}
-	return pr, snap.Decide(pr.Request)
+	return pr, live.Decide(pr.Request)
 }
 
 // pseudoHeaders returns :method, :authority, and :path, and x-request-id if
