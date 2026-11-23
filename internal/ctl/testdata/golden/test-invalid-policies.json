@@ -1,0 +1,65 @@
+{
+  "passed": 0,
+  "failed": 0,
+  "files": [
+    {
+      "file": "testdata/test/invalid-policies.tests.yaml",
+      "policies": [
+        "testdata/lint/invalid.yaml"
+      ],
+      "invalidPolicies": [
+        {
+          "code": "ERP001",
+          "name": "schema",
+          "severity": "error",
+          "policy": "bad-template",
+          "file": "testdata/lint/invalid.yaml",
+          "document": 1,
+          "field": "spec.hosts[0].routes[0].paths[0]",
+          "message": "should match '^(/|(/([.]*[A-Za-z0-9_~!$&'()+,;=:@-][A-Za-z0-9_~!$&'()+,;=:@.-]*|[.][.][.]+|[*]))+/?|(/([.]*[A-Za-z0-9_~!$&'()+,;=:@-][A-Za-z0-9_~!$&'()+,;=:@.-]*|[.][.][.]+|[*]))*/[*][*])$'"
+        },
+        {
+          "code": "ERP003",
+          "name": "compile",
+          "severity": "error",
+          "policy": "bad-template",
+          "file": "testdata/lint/invalid.yaml",
+          "document": 1,
+          "field": "spec.hosts[0].routes[0].paths",
+          "message": "pattern \"/repos/**/pulls\": \"**\" must be the last segment"
+        },
+        {
+          "code": "ERP002",
+          "name": "duplicate-item",
+          "severity": "error",
+          "policy": "listed-twice",
+          "file": "testdata/lint/invalid.yaml",
+          "document": 2,
+          "field": "spec.hosts[0].routes[0].methods[1]",
+          "message": "Duplicate value: \"GET\""
+        },
+        {
+          "code": "ERP002",
+          "name": "duplicate-item",
+          "severity": "error",
+          "policy": "listed-twice",
+          "file": "testdata/lint/invalid.yaml",
+          "document": 2,
+          "field": "spec.hosts[0].routes[0].paths[2]",
+          "message": "Duplicate value: \"/a\""
+        },
+        {
+          "code": "ERP001",
+          "name": "schema",
+          "severity": "error",
+          "policy": "misspelled-field",
+          "file": "testdata/lint/invalid.yaml",
+          "document": 3,
+          "field": "spec.enforcmentMode",
+          "message": "unknown field"
+        }
+      ],
+      "cases": []
+    }
+  ]
+}

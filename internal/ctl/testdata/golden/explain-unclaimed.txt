@@ -1,0 +1,6 @@
+request   GET https://pypi.org/simple/requests/
+actor     research/agent
+decision  allow
+reason    unclaimed: no policy that selects the actor claims the host, so the request is left to Substrate's EgressPolicy
+
+No policy claims pypi.org for research/agent.

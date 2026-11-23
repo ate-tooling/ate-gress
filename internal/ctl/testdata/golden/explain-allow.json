@@ -1,0 +1,36 @@
+{
+  "actor": "research/agent",
+  "method": "GET",
+  "url": "https://api.github.com/repos/acme/widget/pulls?state=open",
+  "authority": "api.github.com",
+  "path": "/repos/acme/widget/pulls?state=open",
+  "host": "api.github.com",
+  "decision": "allow",
+  "reason": "route",
+  "policy": "github-acme-readonly",
+  "template": "/repos/acme/*/**",
+  "logAllowed": false,
+  "claims": [
+    {
+      "policy": "github-acme-readonly",
+      "mode": "Enforce",
+      "logAllowed": false,
+      "alone": {
+        "decision": "allow",
+        "reason": "route",
+        "policy": "github-acme-readonly",
+        "template": "/repos/acme/*/**"
+      }
+    },
+    {
+      "policy": "github-lockdown",
+      "mode": "Enforce",
+      "logAllowed": false,
+      "alone": {
+        "decision": "deny",
+        "reason": "no_route",
+        "policy": "github-lockdown"
+      }
+    }
+  ]
+}

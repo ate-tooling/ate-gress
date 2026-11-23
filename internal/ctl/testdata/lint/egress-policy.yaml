@@ -1,0 +1,25 @@
+# A Substrate EgressPolicy as `kubectl ate get egress-policy -o yaml` prints
+# it. api.example.com is intercepted: its exact https rule outranks the
+# wildcard passthrough. Every other *.example.com host is passed through on
+# 443, and intercepted only on 8443.
+metadata:
+  atespace: research
+  name: default
+  uid: 1a2b3c4d-5e6f-4a3b-8c9d-0e1f2a3b4c5d
+  version: "2"
+rules:
+- https:
+    hostnames: [api.example.com]
+    effects:
+      replaceHeaders:
+      - header: Authorization
+        prefix: "Bearer "
+        credentialUri: ate-secret://example-provider/research/api-key
+- tlsPassthrough:
+    hostnames: ["*.example.com"]
+    ports:
+      numbers: [443]
+- https:
+    hostnames: [registry.example.com]
+    ports:
+      numbers: [8443]

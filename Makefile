@@ -69,6 +69,10 @@ build:
 
 VERSION ?= dev
 
+.PHONY: build-ategressctl
+build-ategressctl: ## Build the policy testing CLI into bin/ategressctl.
+	CGO_ENABLED=0 go build -trimpath -ldflags="-X main.version=$(VERSION)" -o bin/ategressctl ./cmd/ategressctl
+
 .PHONY: docker-build
 docker-build:
 	docker build --build-arg VERSION=$(VERSION) -t $(IMG) .

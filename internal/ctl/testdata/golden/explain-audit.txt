@@ -1,0 +1,9 @@
+request   GET https://files.example.com/private/a.txt
+actor     research/agent
+decision  audit
+reason    no_route: the host is claimed for the actor and no route matches the method and path
+policy    files-audit (the first policy claiming the host; none allowed the request)
+audit     allowed only because every policy claiming the host for this actor is in Audit mode; Enforce would deny it
+
+Policies claiming files.example.com for research/agent:
+  files-audit  Audit  alone: audit (no_route)

@@ -1,0 +1,11 @@
+request   POST https://api.example.com/v1/items
+actor     research/agent
+decision  deny
+reason    no_route: the host is claimed for the actor and no route matches the method and path
+policy    api-readonly (the first policy claiming the host; none allowed the request)
+
+Policies claiming api.example.com for research/agent:
+  api-readonly  Enforce, logAllowed  alone: deny (no_route)
+  files-audit   Audit                alone: allow (route, /v1/**)
+
+An Enforce policy claims the host, so the Audit policies' routes are not consulted.

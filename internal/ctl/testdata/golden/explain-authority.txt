@@ -1,0 +1,4 @@
+request   GET https://user@api.github.com/repos/acme/widget
+actor     research/agent
+decision  deny
+reason    authority: the authority is not a hostname or IP literal with an optional port

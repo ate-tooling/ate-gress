@@ -1,0 +1,5 @@
+policies: [../lint/invalid.yaml]
+tests:
+- actor: research/agent
+  allow:
+  - GET https://api.example.com/a

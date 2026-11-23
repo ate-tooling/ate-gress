@@ -1,0 +1,16 @@
+policies: [policies.yaml]
+tests:
+- name: expectations the policies do not meet
+  actor: research/agent
+  allow:
+  - GET https://api.example.com/v1/items
+  - POST https://api.example.com/v1/items
+  - request: GET https://api.example.com/v1/items/7
+    template: /v1/*
+  deny:
+  - GET https://files.example.com/private/a.txt
+  - request: GET https://api.example.com/v2/items
+    reason: path
+    policy: files-audit
+  audit:
+  - GET https://files.example.com/public/a.txt

@@ -1,0 +1,24 @@
+{
+  "actor": "research/agent",
+  "method": "GET",
+  "url": "https://files.example.com/private/a.txt",
+  "authority": "files.example.com",
+  "path": "/private/a.txt",
+  "host": "files.example.com",
+  "decision": "audit",
+  "reason": "no_route",
+  "policy": "files-audit",
+  "logAllowed": false,
+  "claims": [
+    {
+      "policy": "files-audit",
+      "mode": "Audit",
+      "logAllowed": false,
+      "alone": {
+        "decision": "audit",
+        "reason": "no_route",
+        "policy": "files-audit"
+      }
+    }
+  ]
+}

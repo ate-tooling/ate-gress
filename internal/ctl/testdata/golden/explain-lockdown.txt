@@ -1,0 +1,8 @@
+request   GET https://API.GitHub.com:443/repos/acme/widget
+actor     billing/agent
+decision  deny
+reason    no_route: the host is claimed for the actor and no route matches the method and path
+policy    github-lockdown (the first policy claiming the host; none allowed the request)
+
+Policies claiming api.github.com for billing/agent:
+  github-lockdown  Enforce  alone: deny (no_route)
