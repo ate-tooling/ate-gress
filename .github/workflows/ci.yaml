@@ -1,8 +1,9 @@
-# Pull requests and main run the checks, the fuzzers for a short while, the
-# real-Envoy integration test, and an image build. The release workflow calls
-# this one first, so a tag is published only from a commit that passes it.
-# The kind end-to-end test (hack/e2e-kind.sh) needs a running Substrate and is
-# run against one.
+# Pull requests and main run the checks, the real-Envoy integration test, and
+# an image build; main and releases also run the fuzzers for a short while.
+# The release workflow calls this one first, so a tag is published only from a
+# commit that passes it. docs/ci.md lists the other workflows: more Envoy
+# versions, longer fuzzing with a saved corpus, and the nightly end-to-end
+# test against a real Substrate.
 name: ci
 
 on:
@@ -54,8 +55,11 @@ jobs:
         version: 1.18.0
         persona: pedantic
 
+  # A short run of every target, for main and for a release. Pull requests
+  # are fuzzed by the fuzz workflow instead, which has the saved corpus.
   fuzz:
     name: Fuzz
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

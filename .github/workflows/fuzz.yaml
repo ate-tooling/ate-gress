@@ -1,0 +1,108 @@
+# Fuzzes the targets hack/fuzz.sh finds with Go's own fuzzer:
+#
+#   pull request  the targets the change can affect, for 3 minutes each,
+#                 starting from the corpus the nightly runs have built up
+#   nightly       every target for 15 minutes, saving the grown corpus
+#   on demand     every target for the time given
+#
+# A crash fails the job. The failing input is in the job summary and in the
+# fuzz-reproducer artifact, in the testdata/fuzz format `go test` replays, so
+# the fix is committed together with it. docs/ci.md explains why this is not
+# ClusterFuzzLite.
+name: fuzz
+
+on:
+  pull_request:
+  schedule:
+  - cron: "47 2 * * *"
+  workflow_dispatch:
+    inputs:
+      fuzztime:
+        description: How long to fuzz each target, as a Go duration
+        default: 15m
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+        # A pull request is compared with its base commit.
+        fetch-depth: 0
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+    - id: plan
+      run: |
+        matrix="$(hack/fuzz.sh matrix "${BASE}")"
+        echo "${matrix}"
+        echo "matrix=${matrix}" >>"${GITHUB_OUTPUT}"
+      env:
+        # Empty except on a pull request, which selects every target.
+        BASE: ${{ github.event.pull_request.base.sha }}
+
+  fuzz:
+    name: ${{ matrix.target }}
+    needs: plan
+    if: needs.plan.outputs.matrix != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      PACKAGE: ${{ matrix.package }}
+      TARGET: ${{ matrix.target }}
+      FUZZTIME: ${{ github.event_name == 'pull_request' && '3m' || inputs.fuzztime || '15m' }}
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+        # Go keeps the corpus it generates inside its build cache. This job
+        # saves that part itself, under a key of its own.
+        cache: false
+    - id: corpus
+      run: echo "dir=$(go env GOCACHE)/fuzz" >>"${GITHUB_OUTPUT}"
+    # The newest corpus saved for this target. A pull request can read what
+    # main saved, and saves nothing itself.
+    - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.corpus.outputs.dir }}
+        key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: fuzz-corpus-${{ matrix.target }}-
+    - run: hack/fuzz.sh run "${PACKAGE}" "${TARGET}" "${FUZZTIME}"
+    # A cache entry is immutable, so each run saves a new one and the next
+    # restores the newest. GitHub evicts the old ones.
+    - if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.corpus.outputs.dir }}
+        key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
+    - if: failure()
+      run: |
+        mkdir -p "${RUNNER_TEMP}/reproducer"
+        git ls-files --others --exclude-standard -z -- '*/testdata/fuzz/*' |
+          xargs -0 -r cp --parents -t "${RUNNER_TEMP}/reproducer"
+    - if: failure()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: fuzz-reproducer-${{ matrix.target }}
+        path: ${{ runner.temp }}/reproducer
+        # A job that failed without a crash, on a build error, has none.
+        if-no-files-found: ignore
