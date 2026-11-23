@@ -2,6 +2,7 @@ package policy
 
 import (
 	"path"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -307,7 +308,7 @@ func TestDecideLogAllowed(t *testing.T) {
 			if !d.Allowed || d.LogAllowed != tt.want {
 				t.Errorf("Decide() = %+v, want allowed with LogAllowed %v", d, tt.want)
 			}
-			if ref := referenceDecide(tt.policies, r); ref.LogAllowed != d.LogAllowed {
+			if ref := referenceDecide(tt.policies, make([]bool, len(tt.policies)), r); ref.LogAllowed != d.LogAllowed {
 				t.Errorf("reference LogAllowed = %v, Decide says %v", ref.LogAllowed, d.LogAllowed)
 			}
 		})
@@ -388,11 +389,15 @@ func TestCompileRejects(t *testing.T) {
 			if results[1].Err != nil {
 				t.Errorf("valid policy failed to compile: %v", results[1].Err)
 			}
-			// The rejected policy contributes nothing; the valid one still applies.
+			if results[0].Effect == "" || results[1].Effect != "" {
+				t.Errorf("effects = %q and %q, want one for the rejected policy alone", results[0].Effect, results[1].Effect)
+			}
+			// The rejected policy allows nothing, not even the route it shares
+			// with the valid one, which still applies.
 			for _, hps := range s.hosts {
 				for _, hp := range hps {
-					if hp.policy == "bad" {
-						t.Errorf("rejected policy is in the snapshot")
+					if hp.policy == "bad" && (!hp.rejected || len(hp.routes) != 0) {
+						t.Errorf("rejected policy is in the snapshot as %+v, want rejected and without routes", hp)
 					}
 				}
 			}
@@ -418,31 +423,263 @@ func TestDecideDoesNotAllocate(t *testing.T) {
 }
 
 // FuzzDecide compares Decide with referenceDecide, a slow implementation
-// written to be obviously correct rather than fast.
+// written to be obviously correct rather than fast. variant picks the
+// policies: githubPolicies as they are, or with one or all of them broken in
+// one of the ways the compiler rejects.
 func FuzzDecide(f *testing.F) {
-	f.Add("research-a", "agent-1", "GET", "api.github.com", "/repos/acme/widget")
-	f.Add("billing", "x", "POST", "GitHub.com:443", "/acme/w/git-upload-pack")
-	f.Add("research-a", "agent-1", "GET", "api.github.com.", "/repos/acme/w/../../evil")
-	f.Add("x", "y", "GET", "gitlab.com", "/api/v4/groups/acme/x")
-	f.Add("x", "y", "GET", "registry-1.docker.io", "/v2/")
-	f.Add("x", "y", "GET", "registry-1.docker.io", "/v2/library/")
-	policies := githubPolicies()
-	s := mustCompile(f, policies)
-	_, live := liveOf(f, policies)
-	f.Fuzz(func(t *testing.T, atespace, name, method, authority, rawPath string) {
+	f.Add("research-a", "agent-1", "GET", "api.github.com", "/repos/acme/widget", byte(0))
+	f.Add("billing", "x", "POST", "GitHub.com:443", "/acme/w/git-upload-pack", byte(0))
+	f.Add("research-a", "agent-1", "GET", "api.github.com.", "/repos/acme/w/../../evil", byte(0))
+	f.Add("x", "y", "GET", "gitlab.com", "/api/v4/groups/acme/x", byte(0))
+	f.Add("x", "y", "GET", "registry-1.docker.io", "/v2/", byte(0))
+	f.Add("x", "y", "GET", "registry-1.docker.io", "/v2/library/", byte(0))
+	variants := fuzzVariants(f)
+	for i := range variants {
+		f.Add("research-a", "agent-1", "GET", "api.github.com", "/repos/acme/widget", byte(i))
+		f.Add("billing", "agent-1", "GET", "github.com", "/acme/w/info/refs", byte(i))
+		f.Add("x", "y", "GET", "gitlab.com", "/api/v4/groups/acme/x", byte(i))
+		f.Add("x", "y", "GET", "registry-1.docker.io", "/v2/", byte(i))
+		f.Add("x", "y", "GET", "added.example.com", "/", byte(i))
+		f.Add("x", "y", "GET", "added-.example.com", "/a//b", byte(i))
+	}
+	intact := variants[0]
+	f.Fuzz(func(t *testing.T, atespace, name, method, authority, rawPath string, variant byte) {
+		v := variants[int(variant)%len(variants)]
 		r := Request{Actor: identity.Actor{Atespace: atespace, Name: name}, Method: method, Authority: authority, Path: rawPath}
-		got := s.Decide(r)
+		got := v.snap.Decide(r)
 		// Counting a decision must not change it.
-		if counted := live.Decide(r); counted != got {
-			t.Fatalf("Decide(%+v) = %+v, but %+v when counted", r, got, counted)
+		if counted := v.live.Decide(r); counted != got {
+			t.Fatalf("%s: Decide(%+v) = %+v, but %+v when counted", v.name, r, got, counted)
 		}
-		if want := referenceDecide(policies, r); got.Allowed != want.Allowed || got.Audited != want.Audited || got.Reason != want.Reason || got.LogAllowed != want.LogAllowed {
-			t.Fatalf("Decide(%+v) = %+v, reference says %+v", r, got, want)
+		if want := referenceDecide(v.read, v.rejected, r); got.Allowed != want.Allowed || got.Audited != want.Audited || got.Reason != want.Reason || got.LogAllowed != want.LogAllowed {
+			t.Fatalf("%s: Decide(%+v) = %+v, reference says %+v", v.name, r, got, want)
+		}
+		// No compile failure can turn a deny into an allow.
+		if was := intact.snap.Decide(r); v.additive && !was.Allowed && got.Allowed {
+			t.Fatalf("%s: Decide(%+v) = %+v, but %+v before the policy was broken", v.name, r, got, was)
+		}
+		// A rejected policy decides as the lockdown it is read as would, were
+		// that written out and accepted. Only the reason, and with it the
+		// policy named for a denial, tells them apart.
+		if v.lockdown != nil {
+			if as := v.lockdown.Decide(r); got.Allowed != as.Allowed || got.Audited != as.Audited || got.LogAllowed != as.LogAllowed || got.Pattern != as.Pattern {
+				t.Fatalf("%s: Decide(%+v) = %+v, but %+v with the rejected policies written as lockdowns", v.name, r, got, as)
+			}
 		}
 	})
 }
 
-func referenceDecide(policies []v1alpha1.EgressRoutePolicy, r Request) Decision {
+// fuzzVariant is a set of policies FuzzDecide decides against.
+type fuzzVariant struct {
+	name string
+	snap *Snapshot
+	live *Live
+	// read is the policies as referenceDecide takes them, and rejected
+	// which of them the reference rejects; see referenceRead.
+	read     []v1alpha1.EgressRoutePolicy
+	rejected []bool
+	// additive is set if the variant is githubPolicies with something
+	// invalid added and nothing taken away, so that every request
+	// githubPolicies denies must still be denied.
+	additive bool
+	// lockdown is the snapshot of read, accepted: the rejected policies as
+	// if someone had written out what they are read as.
+	lockdown *Snapshot
+}
+
+// breakages are ways to make a policy one the compiler rejects. Each adds
+// something invalid, except those named in subtractive.
+var breakages = []struct {
+	name  string
+	apply func(*v1alpha1.EgressRoutePolicySpec)
+}{
+	{"bad template", func(s *v1alpha1.EgressRoutePolicySpec) {
+		s.Hosts[0].Routes = append(s.Hosts[0].Routes, v1alpha1.Route{Methods: []v1alpha1.Method{"GET"}, Paths: []string{"/a/**/b"}})
+	}},
+	{"bad method", func(s *v1alpha1.EgressRoutePolicySpec) {
+		s.Hosts[0].Routes = append(s.Hosts[0].Routes, v1alpha1.Route{Methods: []v1alpha1.Method{"get"}, Paths: []string{"/**"}})
+	}},
+	{"route without paths", func(s *v1alpha1.EgressRoutePolicySpec) {
+		s.Hosts[0].Routes = append(s.Hosts[0].Routes, v1alpha1.Route{Methods: []v1alpha1.Method{"GET"}})
+	}},
+	{"unknown mode", func(s *v1alpha1.EgressRoutePolicySpec) { s.EnforcementMode = "Permissive" }},
+	{"bad atespace glob", func(s *v1alpha1.EgressRoutePolicySpec) {
+		s.ActorSelector.Atespaces = append(s.ActorSelector.Atespaces, "Research")
+	}},
+	{"bad name glob", func(s *v1alpha1.EgressRoutePolicySpec) {
+		s.ActorSelector.Names = append(s.ActorSelector.Names, "a/b")
+	}},
+	{"both globs bad", func(s *v1alpha1.EgressRoutePolicySpec) {
+		s.ActorSelector.Atespaces = append(s.ActorSelector.Atespaces, "")
+		s.ActorSelector.Names = append(s.ActorSelector.Names, "x y")
+	}},
+	{"wildcard host", func(s *v1alpha1.EgressRoutePolicySpec) {
+		s.Hosts = append(s.Hosts, v1alpha1.HostRoutes{Host: "*.example.com"})
+	}},
+	{"duplicate host", func(s *v1alpha1.EgressRoutePolicySpec) { s.Hosts = append(s.Hosts, s.Hosts[0]) }},
+	{"host with case and port", func(s *v1alpha1.EgressRoutePolicySpec) {
+		s.Hosts = append(s.Hosts, v1alpha1.HostRoutes{Host: "Added.Example.com:443"})
+	}},
+	{"host with a label ending in a hyphen", func(s *v1alpha1.EgressRoutePolicySpec) {
+		s.Hosts = append(s.Hosts, v1alpha1.HostRoutes{Host: "added-.example.com"})
+	}},
+	{"misspelt mode and bad glob", func(s *v1alpha1.EgressRoutePolicySpec) {
+		s.EnforcementMode = "enforce"
+		s.ActorSelector.Atespaces = append(s.ActorSelector.Atespaces, "*.*")
+	}},
+	{"no hosts", func(s *v1alpha1.EgressRoutePolicySpec) { s.Hosts = nil }},
+	{"only a wildcard host", func(s *v1alpha1.EgressRoutePolicySpec) {
+		s.Hosts = []v1alpha1.HostRoutes{{Host: "*.example.com"}}
+	}},
+}
+
+// subtractive names the breakages that take hosts away from a policy. What
+// the policy claimed before says nothing about what it claims after.
+var subtractive = []string{"no hosts", "only a wildcard host"}
+
+// fuzzVariants returns githubPolicies, then githubPolicies with each policy
+// in turn, and then all of them, broken in each way.
+func fuzzVariants(t testing.TB) []fuzzVariant {
+	t.Helper()
+	pathRE := crdPathPattern(t)
+	variants := []fuzzVariant{{name: "intact", read: githubPolicies()}}
+	for _, b := range breakages {
+		for i := range len(githubPolicies()) + 1 {
+			policies := githubPolicies()
+			name := b.name + " in every policy"
+			if i < len(policies) {
+				name = b.name + " in " + policies[i].Name
+			}
+			for j := range policies {
+				if i == j || i == len(policies) {
+					b.apply(&policies[j].Spec)
+				}
+			}
+			variants = append(variants, fuzzVariant{name: name, read: policies, additive: !slices.Contains(subtractive, b.name)})
+		}
+	}
+	if len(variants) > 256 {
+		t.Fatalf("%d variants do not fit FuzzDecide's byte", len(variants))
+	}
+	for i := range variants {
+		v := &variants[i]
+		var results []Result
+		v.snap, results = Compile(v.read)
+		store := &Store{}
+		store.Swap(v.snap)
+		v.live = store.Live()
+
+		// The compiler and the reference must agree on which policies are
+		// rejected.
+		v.read, v.rejected = referenceRead(pathRE, v.read)
+		for j, r := range results {
+			if v.rejected[j] != (r.Err != nil) || (i > 0) != slices.Contains(v.rejected, true) {
+				t.Fatalf("%s: reference rejects %s = %v, but Compile says %v", v.name, r.Name, v.rejected[j], r.Err)
+			}
+		}
+		// A policy read as claiming no host cannot be written out, and has
+		// no effect. Nor can one claiming a host the schema does not admit,
+		// which leaves that variant to the reference alone.
+		written := slices.DeleteFunc(slices.Clone(v.read), func(p v1alpha1.EgressRoutePolicy) bool {
+			return len(p.Spec.Hosts) == 0
+		})
+		if i > 0 && !slices.ContainsFunc(written, func(p v1alpha1.EgressRoutePolicy) bool { return !referenceValid(pathRE, p.Spec) }) {
+			v.lockdown = mustCompile(t, written)
+		}
+	}
+	return variants
+}
+
+// referenceRead returns policies as referenceDecide takes them: each one the
+// CRD schema would not admit is marked rejected and replaced by the lockdown
+// it is read as.
+func referenceRead(pathRE *regexp.Regexp, policies []v1alpha1.EgressRoutePolicy) ([]v1alpha1.EgressRoutePolicy, []bool) {
+	read, rejected := slices.Clone(policies), make([]bool, len(policies))
+	for i, p := range policies {
+		if !referenceValid(pathRE, p.Spec) {
+			read[i].Spec, rejected[i] = referenceLockdown(p.Spec), true
+		}
+	}
+	return read, rejected
+}
+
+func referenceGlobsOK(globs []string) bool {
+	for _, g := range globs {
+		if g == "" || len(g) > 63 || strings.Trim(g, "abcdefghijklmnopqrstuvwxyz0123456789*-") != "" {
+			return false
+		}
+	}
+	return true
+}
+
+// referenceValid reports whether spec is one the CRD schema admits, checked
+// without the compiler: path templates against the CRD's own pattern, and the
+// rest by hand.
+func referenceValid(pathRE *regexp.Regexp, spec v1alpha1.EgressRoutePolicySpec) bool {
+	if m := spec.EnforcementMode; m != "" && m != "Enforce" && m != "Audit" {
+		return false
+	}
+	if !referenceGlobsOK(spec.ActorSelector.Atespaces) || !referenceGlobsOK(spec.ActorSelector.Names) || len(spec.Hosts) == 0 {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, h := range spec.Hosts {
+		if seen[h.Host] || len(h.Host) > 253 {
+			return false
+		}
+		seen[h.Host] = true
+		for _, label := range strings.Split(h.Host, ".") {
+			if label == "" || len(label) > 63 || strings.Trim(label, "abcdefghijklmnopqrstuvwxyz0123456789-") != "" ||
+				strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
+				return false
+			}
+		}
+		for _, rt := range h.Routes {
+			if len(rt.Methods) == 0 || len(rt.Paths) == 0 {
+				return false
+			}
+			for _, m := range rt.Methods {
+				if !slices.Contains([]v1alpha1.Method{"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}, m) {
+					return false
+				}
+			}
+			for _, pat := range rt.Paths {
+				if !pathRE.MatchString(pat) {
+					return false
+				}
+			}
+		}
+	}
+	return true
+}
+
+// referenceLockdown is what a rejected policy is read as, written out as a
+// policy of its own: every host of spec that a request could name, with no
+// routes; in Enforce unless spec says Audit; for the actors spec selects,
+// where a list of globs that are not all valid selects everyone.
+func referenceLockdown(spec v1alpha1.EgressRoutePolicySpec) v1alpha1.EgressRoutePolicySpec {
+	out := v1alpha1.EgressRoutePolicySpec{EnforcementMode: v1alpha1.EnforcementModeEnforce, LogAllowed: spec.LogAllowed}
+	if spec.EnforcementMode == v1alpha1.EnforcementModeAudit {
+		out.EnforcementMode = v1alpha1.EnforcementModeAudit
+	}
+	if referenceGlobsOK(spec.ActorSelector.Atespaces) {
+		out.ActorSelector.Atespaces = spec.ActorSelector.Atespaces
+	}
+	if referenceGlobsOK(spec.ActorSelector.Names) {
+		out.ActorSelector.Names = spec.ActorSelector.Names
+	}
+	for _, h := range spec.Hosts {
+		host, ok := referenceHost(h.Host)
+		if ok && !slices.ContainsFunc(out.Hosts, func(o v1alpha1.HostRoutes) bool { return o.Host == host }) {
+			out.Hosts = append(out.Hosts, v1alpha1.HostRoutes{Host: host})
+		}
+	}
+	return out
+}
+
+// referenceDecide decides r against policies, of which those marked in
+// rejected are rejected policies as referenceRead returns them.
+func referenceDecide(policies []v1alpha1.EgressRoutePolicy, rejected []bool, r Request) Decision {
 	host, ok := referenceHost(r.Authority)
 	if !ok {
 		return Decision{Reason: ReasonAuthority}
@@ -451,7 +688,9 @@ func referenceDecide(policies []v1alpha1.EgressRoutePolicy, r Request) Decision 
 	pathOK := referencePathOK(rawPath)
 
 	var enforceClaim, auditClaim, enforceMatch, auditMatch, logAllowed bool
-	for _, p := range policies {
+	// Whether a policy that is not rejected made the claim.
+	var enforceAccepted, auditAccepted bool
+	for i, p := range policies {
 		if !referenceSelected(p.Spec.ActorSelector, r.Actor) {
 			continue
 		}
@@ -462,8 +701,10 @@ func referenceDecide(policies []v1alpha1.EgressRoutePolicy, r Request) Decision 
 			}
 			if audit {
 				auditClaim = true
+				auditAccepted = auditAccepted || !rejected[i]
 			} else {
 				enforceClaim = true
+				enforceAccepted = enforceAccepted || !rejected[i]
 			}
 			logAllowed = logAllowed || p.Spec.LogAllowed
 			if !pathOK {
@@ -496,8 +737,12 @@ func referenceDecide(policies []v1alpha1.EgressRoutePolicy, r Request) Decision 
 		return Decision{Allowed: true, Reason: ReasonUnclaimed}
 	case enforceClaim && enforceMatch, !enforceClaim && auditMatch:
 		return Decision{Allowed: true, Reason: ReasonRoute, LogAllowed: logAllowed}
+	case enforceClaim && !enforceAccepted:
+		return Decision{Reason: ReasonInvalidPolicy}
 	case enforceClaim:
 		return Decision{Reason: reason}
+	case !auditAccepted:
+		return Decision{Allowed: true, Audited: true, Reason: ReasonInvalidPolicy}
 	default:
 		return Decision{Allowed: true, Audited: true, Reason: reason}
 	}

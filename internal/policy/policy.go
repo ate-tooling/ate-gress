@@ -39,6 +39,12 @@ const (
 	// ReasonPath denies a request to a claimed host whose path Canonicalize
 	// refused.
 	ReasonPath Reason = "path"
+	// ReasonInvalidPolicy denies a request to a host that is claimed for its
+	// actor only by policies that were rejected. Nothing can match it until
+	// one of them is fixed or deleted: the fault is the policy's, not the
+	// request's. A host that an accepted Enforce policy claims as well denies
+	// with ReasonNoRoute or ReasonPath, as it would without the rejected one.
+	ReasonInvalidPolicy Reason = "invalid_policy"
 	// ReasonAuthority denies a request whose :authority is not a hostname,
 	// optionally with a port.
 	ReasonAuthority Reason = "authority"
@@ -64,7 +70,8 @@ type Decision struct {
 	// Policy names the policy that allowed the request, or, for a denied or
 	// audited one, the first (by name) policy that claimed its host. That
 	// policy may be one of several that claimed it, and for a denial may be an
-	// Audit policy; the tallies attribute decisions more carefully.
+	// Audit policy; the tallies attribute decisions more carefully. With
+	// ReasonInvalidPolicy it is the first rejected policy that decided.
 	Policy string
 	// Pattern is the path template that allowed the request.
 	Pattern string
@@ -98,6 +105,10 @@ func (s *Snapshot) decide(r Request, a *attribution) Decision {
 		firstClaim               string
 		auditMatch, auditPattern string
 		claimBits, matchBits     uint64
+		// accepted and rejected are indexed by mode: whether an accepted
+		// policy of that mode claimed, and the first rejected one that did.
+		accepted [2]bool
+		rejected [2]string
 	)
 	hps := s.hosts[host]
 	for i, hp := range hps {
@@ -114,6 +125,12 @@ func (s *Snapshot) decide(r Request, a *attribution) Decision {
 			enforcing = true
 		} else {
 			auditing = true
+		}
+		switch {
+		case !hp.rejected:
+			accepted[hp.mode] = true
+		case rejected[hp.mode] == "":
+			rejected[hp.mode] = hp.policy
 		}
 		if !pathChecked {
 			path, pathErr = pathmatch.Canonicalize(r.Path)
@@ -156,6 +173,16 @@ func (s *Snapshot) decide(r Request, a *attribution) Decision {
 	reason := ReasonNoRoute
 	if pathErr != nil {
 		reason = ReasonPath
+	}
+	// The Enforce policies decide if there are any, and otherwise the Audit
+	// policies do. If every one of those is a rejected policy, that is why
+	// nothing matched, whatever the path.
+	deciding := modeAudit
+	if enforcing {
+		deciding = modeEnforce
+	}
+	if !accepted[deciding] {
+		reason, firstClaim = ReasonInvalidPolicy, rejected[deciding]
 	}
 	return Decision{Allowed: !enforcing, Audited: !enforcing, Reason: reason, Policy: firstClaim}
 }

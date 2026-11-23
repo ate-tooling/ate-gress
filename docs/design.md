@@ -123,13 +123,53 @@ record.
   costs microseconds.
 - **Status writer (leader only).** It compiles each policy alone and sets
   `Accepted`. Policies compile independently, so this is the same verdict
-  every replica's snapshot reaches.
+  every replica's snapshot reaches, and for a rejected policy the same
+  account of what it still claims.
 - **Validation in two layers.** The CRD schema rejects bad specs at
   admission. It uses one OpenAPI pattern for the path grammar, because the
   equivalent CEL rules exceeded the API server's cost budget. The compiler
-  re-validates everything and excludes a policy it rejects. Excluding a policy
-  can only remove allows. A fuzz test checks that the schema pattern and the
-  compiler accept exactly the same templates.
+  re-validates everything and rejects what the schema would. A fuzz test
+  checks that the schema pattern and the compiler accept exactly the same
+  templates.
+- **A rejected policy fails closed.** A policy reaches the compiler without
+  having passed the schema the compiler agrees with when the cluster's CRD
+  is older than the binary, or when the chart is rolled back to a binary
+  whose compiler does not know a newer template form. Leaving such a policy
+  out of the snapshot removes its allows, but it also removes its claims:
+  every host that it alone claimed becomes unclaimed, and requests to it are
+  allowed. So a rejected policy stays in the snapshot as the lockdown of what
+  it lists. It keeps its hosts, for its actors, with no routes, and whatever
+  part of it cannot be understood is read the way that denies more:
+  - *Routes.* None is kept, not even the valid ones. A rejected policy allows
+    nothing, instead of some part of what was written.
+  - *Mode.* `Audit` stays `Audit`, and so denies nothing. Anything else is
+    `Enforce`: a mode this version does not know may be one that denies, and
+    a misspelt `Enforce` was certainly meant to.
+  - *Selector.* A list holding a glob that does not compile selects
+    everything, because the glob may have been meant to select anyone. The
+    other list still narrows the selector, since an actor is selected only
+    when both lists match. One typo therefore does not claim the policy's
+    hosts for the whole cluster unless the policy named no other list.
+  - *Hosts.* A host is claimed under the name a request for it is looked up
+    by, so `Example.com` and `example.com:443` claim `example.com`. A host
+    that no `:authority` normalizes to, such as `*.example.com`, cannot be
+    claimed. That, and a policy with no hosts, is all a rejection leaves
+    unclaimed.
+
+  The rejected policy only adds a claim. A route in another `Enforce` policy
+  on the same host still allows, as it would beside a lockdown.
+
+  This trades availability for safety, as the gateway's own filter does: a
+  broken policy now denies traffic that used to flow, so it is made loud.
+  The policy's `Accepted` condition is `False` and says what the policy still
+  claims. Every replica logs the same at `WARN` on each snapshot, and counts
+  the policy in `ategress_policies{state="rejected"}`. A request denied on a
+  host that only rejected policies claim for its actor is denied with the
+  reason `invalid_policy`, which nothing else uses. Where an accepted
+  `Enforce` policy claims the host as well, the request would be denied
+  without the rejected policy, and keeps the reason `no_route` or `path`; the
+  rejected policy's `deny` count in `ategress_policy_decisions_total` covers
+  both.
 
 ## Availability
 

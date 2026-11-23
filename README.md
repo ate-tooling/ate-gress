@@ -132,6 +132,36 @@ by path; `POST /graphql` is the main case.
 
 `kubectl get egressroutepolicies` shows whether each policy is `Accepted`.
 
+A policy that is not `Accepted` got past the CRD schema and was rejected by
+ate-gress itself: the cluster's CRD is older than the binary, or the chart
+was rolled back to a version that does not know something the policy uses.
+**A rejected policy fails closed.** It allows nothing, and it still claims
+its hosts for the actors it selects, so they are denied rather than released
+to whatever Substrate allows. Routes in other `Enforce` policies on those
+hosts go on allowing. In detail:
+
+- None of its routes allow, including the valid ones.
+- An `enforcementMode` that is not `Audit` is treated as `Enforce`. A
+  rejected `Audit` policy stays in `Audit`, and denies nothing.
+- A selector list with an invalid glob selects everything; the other list
+  still applies.
+- A host is claimed as a request would name it (`Example.com:443` claims
+  `example.com`). One that is not a hostname at all, such as `*.example.com`,
+  cannot be claimed.
+
+The condition's message says what is wrong and what the policy still claims,
+and every replica logs it at `WARN`. A request denied on a host that only
+rejected policies claim carries the reason `invalid_policy`; if an accepted
+`Enforce` policy claims the host too, the reason is `no_route` or `path` as
+it would be without the rejected one. Alert on either of:
+
+```promql
+ategress_policies{state="rejected"} > 0
+increase(ategress_decisions_total{reason="invalid_policy"}[5m]) > 0
+```
+
+Fix or delete the policy to lift the denial.
+
 ## Operations
 
 | | |
@@ -161,7 +191,9 @@ Policies:
 
 - `ategress_snapshot_generation`: snapshots built since the process started.
 - `ategress_policies{state}`: policies in the snapshot in effect, `accepted`
-  or `rejected`.
+  or `rejected`. A rejected policy allows nothing and still claims its hosts,
+  as [Policies](#policies) describes, so anything above zero for `rejected`
+  may be denying requests.
 - `ategress_snapshot_last_build_timestamp_seconds`: when the snapshot in
   effect was built; `0` before the first. A replica builds one when it starts
   and on every policy change, so this is old wherever policies are stable.
@@ -221,7 +253,10 @@ zero.
   claimed its host for its actor. A denial means no such policy had a route
   for the request, so each of them counts it. This is not the `policy` field
   of the decision log, which names only the first policy by name that claimed
-  the host, and that one may be an `Audit` policy.
+  the host, and that one may be an `Audit` policy. A rejected policy counts
+  here like the lockdown it is treated as, so its `deny` series shows what
+  the rejection is costing even where the deny reason is not
+  `invalid_policy`.
 - `audit`: the request was allowed, and it would have been denied had this
   `Audit` policy, alone, been in `Enforce`. That is every request to a host
   the policy claims for the actor that it has no route for, unless an
@@ -246,8 +281,8 @@ Switching several policies at once is safe when that holds for each of them.
 
 The counts are per replica and start again from zero when the replica
 restarts. They follow the policy's name: a policy that is edited, or switched
-between `Audit` and `Enforce`, keeps its counts. A policy that is deleted or
-rejected loses its series at the next snapshot, and starts from zero if it
+between `Audit` and `Enforce`, or rejected, keeps its counts. A policy that
+is deleted loses its series at the next snapshot, and starts from zero if it
 comes back.
 
 ## Development

@@ -26,6 +26,12 @@ import (
 // One request can therefore count against several policies, and audit counts
 // requests Decision.Audited does not: a request another Audit policy's route
 // allowed is not audited, yet enforcing this policy would deny it.
+//
+// A rejected policy has a tally like any other, and is counted as the
+// lockdown it is read as: never allow, and deny or audit for every request
+// to a host it claims for the actor. Its deny count is how to see what a
+// rejected policy is costing, including where an accepted policy claims the
+// host as well and the decision's reason does not show it.
 type Tally struct {
 	allow, deny, audit atomic.Uint64
 }

@@ -110,8 +110,11 @@ func (b *SnapshotBuilder) build(ctx context.Context) error {
 	for _, r := range results {
 		if r.Err != nil {
 			rejected++
-			b.Log.WarnContext(ctx, "policy rejected; it allows nothing",
-				slog.String("policy", r.Name), slog.Int64("generation", r.Generation), slog.Any("err", r.Err))
+			// A rejected policy is not left out of the snapshot: it goes on
+			// claiming its hosts, and effect says what that denies.
+			b.Log.WarnContext(ctx, "policy rejected; it allows nothing and still claims its hosts",
+				slog.String("policy", r.Name), slog.Int64("generation", r.Generation), slog.Any("err", r.Err),
+				slog.String("effect", r.Effect))
 		}
 	}
 	b.Log.InfoContext(ctx, "policy snapshot in effect",

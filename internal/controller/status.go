@@ -19,7 +19,8 @@ const maxMessage = 32768
 
 // StatusReconciler sets each EgressRoutePolicy's Accepted condition. It runs on
 // the leader only. A policy compiles independently of the others, so compiling
-// it alone gives the verdict every replica's snapshot reaches for it.
+// it alone gives the verdict every replica's snapshot reaches for it, and for
+// a rejected policy the same account of what it still claims.
 type StatusReconciler struct {
 	client.Client
 }
@@ -54,10 +55,14 @@ func (r *StatusReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if err := results[0].Err; err != nil {
 		cond.Status = metav1.ConditionFalse
 		cond.Reason = v1alpha1.ReasonInvalid
+		// What is wrong, then what the policy does meanwhile, which is what
+		// the snapshot does with it. The second part is never cut.
+		effect := ". " + results[0].Effect
 		cond.Message = err.Error()
-		if len(cond.Message) > maxMessage {
-			cond.Message = cond.Message[:maxMessage]
+		if len(cond.Message) > maxMessage-len(effect) {
+			cond.Message = cond.Message[:maxMessage-len(effect)]
 		}
+		cond.Message += effect
 	}
 
 	before := p.DeepCopy()

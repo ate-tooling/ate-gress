@@ -44,10 +44,14 @@ func TestTally(t *testing.T) {
 	everyone := v1alpha1.ActorSelector{}
 	researchOnly := v1alpha1.ActorSelector{Atespaces: []string{"research-*"}}
 	billingOnly := v1alpha1.ActorSelector{Atespaces: []string{"billing"}}
+	// broken is a template the compiler rejects, and its policy with it.
+	const broken = "/orgs/**/acme"
 
 	tests := []struct {
 		name     string
 		policies []v1alpha1.EgressRoutePolicy
+		// rejected is how many of policies must not compile.
+		rejected int
 		actor    identity.Actor
 		path     string
 		// decision is what Decide says, to show where the tallies differ.
@@ -138,10 +142,73 @@ func TestTally(t *testing.T) {
 			actor: research, path: "/orgs/acme",
 			decision: Decision{Allowed: true, Reason: ReasonUnclaimed},
 		},
+		// A rejected policy is counted as the lockdown it is read as.
+		{
+			name: "a denial a rejected policy alone causes counts for it",
+			policies: []v1alpha1.EgressRoutePolicy{
+				tallyPolicy("a-audit", audit, everyone, "/**"),
+				tallyPolicy("b-broken", enforce, everyone, "/orgs/acme", broken),
+			},
+			rejected: 1,
+			actor:    research, path: "/orgs/acme",
+			decision: Decision{Reason: ReasonInvalidPolicy, Policy: "b-broken"},
+			want:     []PolicyCounts{{Policy: "b-broken", Deny: 1}},
+		},
+		{
+			name: "a rejected policy shares a denial with the accepted policies that claimed",
+			policies: []v1alpha1.EgressRoutePolicy{
+				tallyPolicy("a-broken", enforce, everyone, "/orgs/evil", broken),
+				tallyPolicy("b-lockdown", enforce, everyone),
+				tallyPolicy("c-broken", "Sometimes", researchOnly, "/**"),
+				tallyPolicy("d-broken", enforce, billingOnly, broken),
+			},
+			rejected: 3,
+			actor:    research, path: "/orgs/evil",
+			decision: Decision{Reason: ReasonNoRoute, Policy: "a-broken"},
+			want:     []PolicyCounts{{Policy: "a-broken", Deny: 1}, {Policy: "b-lockdown", Deny: 1}, {Policy: "c-broken", Deny: 1}},
+		},
+		{
+			name: "a request another policy allows past a rejected one counts for the other alone",
+			policies: []v1alpha1.EgressRoutePolicy{
+				tallyPolicy("a-broken", enforce, everyone, "/orgs/acme", broken),
+				tallyPolicy("b-acme", enforce, everyone, "/orgs/acme"),
+			},
+			rejected: 1,
+			actor:    research, path: "/orgs/acme",
+			decision: Decision{Allowed: true, Reason: ReasonRoute, Policy: "b-acme", Pattern: "/orgs/acme"},
+			want:     []PolicyCounts{{Policy: "b-acme", Allow: 1}},
+		},
+		{
+			name: "a rejected Audit policy counts every request as one it would deny",
+			policies: []v1alpha1.EgressRoutePolicy{
+				tallyPolicy("a-broken", audit, everyone, "/orgs/acme", broken),
+			},
+			rejected: 1,
+			actor:    research, path: "/orgs/acme",
+			decision: Decision{Allowed: true, Audited: true, Reason: ReasonInvalidPolicy, Policy: "a-broken"},
+			want:     []PolicyCounts{{Policy: "a-broken", Audit: 1}},
+		},
+		{
+			name: "a rejected Audit policy counts a request an accepted one allows",
+			policies: []v1alpha1.EgressRoutePolicy{
+				tallyPolicy("a-broken", audit, everyone, "/orgs/acme", broken),
+				tallyPolicy("b-acme", audit, everyone, "/orgs/acme"),
+			},
+			rejected: 1,
+			actor:    research, path: "/orgs/acme",
+			decision: Decision{Allowed: true, Reason: ReasonRoute, Policy: "b-acme", Pattern: "/orgs/acme"},
+			want:     []PolicyCounts{{Policy: "a-broken", Audit: 1}, {Policy: "b-acme", Allow: 1}},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			store, live := liveOf(t, tt.policies)
+			snap, results := Compile(tt.policies)
+			if n := len(slices.DeleteFunc(results, func(r Result) bool { return r.Err == nil })); n != tt.rejected {
+				t.Fatalf("%d policies were rejected, want %d", n, tt.rejected)
+			}
+			store := &Store{}
+			store.Swap(snap)
+			live := store.Live()
 			r := Request{Actor: tt.actor, Method: "GET", Authority: "api.github.com", Path: tt.path}
 			if d := live.Decide(r); d != tt.decision {
 				t.Errorf("Decide() = %+v, want %+v", d, tt.decision)
@@ -301,13 +368,31 @@ func TestStoreCarriesTallies(t *testing.T) {
 		t.Fatalf("counts after the policy returned = %+v, want %+v", got, want)
 	}
 
-	// A rejected policy is not in the snapshot, so it has no tally.
+	// A policy that is rejected stays in the snapshot, still claiming, so it
+	// keeps its tally and goes on counting the denials it is part of.
 	rejected := tallyPolicy("stays", "Sometimes", everyone)
-	snap, _ := Compile([]v1alpha1.EgressRoutePolicy{rejected, arrives})
+	snap, results := Compile([]v1alpha1.EgressRoutePolicy{rejected, arrives})
+	if results[0].Err == nil {
+		t.Fatal("the policy compiled")
+	}
 	store.Swap(snap)
-	want = []PolicyCounts{{Policy: "arrives"}}
+	want = []PolicyCounts{{Policy: "arrives"}, {Policy: "stays", Deny: 2}}
 	if got := store.PolicyCounts(); !slices.Equal(got, want) {
 		t.Fatalf("counts after a rejection = %+v, want %+v", got, want)
+	}
+	store.Live().Decide(deny)
+	want = []PolicyCounts{{Policy: "arrives", Deny: 1}, {Policy: "stays", Deny: 3}}
+	if got := store.PolicyCounts(); !slices.Equal(got, want) {
+		t.Fatalf("counts after a denial by the rejected policy = %+v, want %+v", got, want)
+	}
+
+	// A rejected policy with nothing to claim has a tally all the same.
+	rejected.Spec.Hosts = nil
+	snap, _ = Compile([]v1alpha1.EgressRoutePolicy{rejected})
+	store.Swap(snap)
+	want = []PolicyCounts{{Policy: "stays", Deny: 3}}
+	if got := store.PolicyCounts(); !slices.Equal(got, want) {
+		t.Fatalf("counts after the policy lost its hosts = %+v, want %+v", got, want)
 	}
 }
 
