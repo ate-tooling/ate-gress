@@ -103,7 +103,7 @@ apply that release's `ate-gress-<version>-crds.yaml` with `kubectl apply
 ## Policies
 
 ```yaml
-apiVersion: ategress.ate-tooling.github.io/v1alpha1
+apiVersion: ategress.ate-tooling.github.io/v1beta1
 kind: EgressRoutePolicy
 metadata:
   name: github-acme-readonly
