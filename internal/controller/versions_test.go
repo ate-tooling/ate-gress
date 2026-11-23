@@ -76,10 +76,11 @@ func TestV1beta1PolicyTakesEffect(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = beta.Delete(context.Background(), p) })
 
-	eventually(t, "the v1beta1 policy to deny another org", func() bool { return !allowed(store, "/repos/evil/widget") })
-	if !allowed(store, "/repos/acme/widget") {
-		t.Error("the v1beta1 policy's route is not allowed")
-	}
+	// Both at once: before the first snapshot, allowed is false for every
+	// path, so a deny alone would pass before the policy is in.
+	eventually(t, "the v1beta1 policy to allow its org and deny another", func() bool {
+		return allowed(store, "/repos/acme/widget") && !allowed(store, "/repos/evil/widget")
+	})
 
 	var asBeta v1beta1.EgressRoutePolicy
 	eventually(t, "Accepted=True, read as v1beta1", func() bool {
