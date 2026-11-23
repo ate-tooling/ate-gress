@@ -91,7 +91,9 @@ tests:
 - name: hosts the policies do not claim are left to Substrate's EgressPolicy
   actor: research/agent
   allow:
-  - request: GET https://pypi.org/simple/requests/
+  # No example in examples/ claims this host, so the case also holds with
+  # -f examples/.
+  - request: GET https://proxy.golang.org/github.com/acme/widget/@v/list
     reason: unclaimed
   # A subdomain is another host: claims are exact.
   - request: GET https://gist.github.com/acme
@@ -100,5 +102,5 @@ tests:
 - name: unclaimed hosts for other atespaces too
   actor: billing/agent
   allow:
-  - request: GET https://pypi.org/simple/requests/
+  - request: GET https://proxy.golang.org/github.com/acme/widget/@v/list
     reason: unclaimed

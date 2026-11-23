@@ -56,8 +56,16 @@ ate-gress, not of the examples:
 Every example is compiled by `TestExamplesCompile`, and each has a test in
 [`internal/policy`](../internal/policy) with requests it must allow and
 requests it must deny, including the over-broad cases its header admits to.
-Add both when you add an example, and say in the header where you checked
-the upstream's request shapes.
+Each also has a `.tests.yaml` file next to it with the same cases, which
+[`ategressctl test`](../docs/ategressctl.md#test) runs, and which you can
+copy as a start for your own:
+
+```sh
+ategressctl test examples/*.tests.yaml
+```
+
+Add all three when you add an example, and say in the header where you
+checked the upstream's request shapes.
 
 The request shapes were checked against the upstreams' documentation, and
 where the header says so against the live service, on the date it gives.

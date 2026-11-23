@@ -1,0 +1,127 @@
+# Tests for s3-single-bucket.yaml. Run them with:
+#
+#   ategressctl test examples/s3-single-bucket.tests.yaml
+#
+# docs/ategressctl.md describes the format.
+policies:
+- s3-single-bucket.yaml
+
+tests:
+- name: research lists and reads the bucket
+  actor: research/agent
+  allow:
+  - request: GET https://acme-data.s3.us-east-1.amazonaws.com/?list-type=2&prefix=reports/
+    policy: s3-acme-data-read
+    template: /
+  - HEAD https://acme-data.s3.us-east-1.amazonaws.com/
+  - request: GET https://acme-data.s3.us-east-1.amazonaws.com/reports/2026/q3.parquet
+    template: /**
+  - HEAD https://acme-data.s3.us-east-1.amazonaws.com/reports/2026/q3.parquet
+  # Non-ASCII keys, which clients percent-encode.
+  - GET https://acme-data.s3.us-east-1.amazonaws.com/caf%C3%A9/menu%20du%20jour.txt
+
+- name: reads the query string tells apart, which the route allows too
+  actor: research/agent
+  allow:
+  # GetBucketPolicy and GetObjectAcl share ListObjects' and GetObject's
+  # method and path.
+  - request: GET https://acme-data.s3.us-east-1.amazonaws.com/?policy
+    template: /
+  - request: GET https://acme-data.s3.us-east-1.amazonaws.com/reports/2026/q3.parquet?acl
+    template: /**
+
+- name: ingest also writes and deletes objects
+  actor: ingest/agent
+  allow:
+  - request: GET https://acme-data.s3.us-east-1.amazonaws.com/?list-type=2
+    policy: s3-acme-data-write
+  - request: PUT https://acme-data.s3.us-east-1.amazonaws.com/incoming/batch-1.csv
+    policy: s3-acme-data-write
+    template: /**
+  - DELETE https://acme-data.s3.us-east-1.amazonaws.com/incoming/batch-1.csv
+  # A multipart upload.
+  - POST https://acme-data.s3.us-east-1.amazonaws.com/incoming/large.bin?uploads
+  - PUT https://acme-data.s3.us-east-1.amazonaws.com/incoming/large.bin?partNumber=1&uploadId=abc
+  - POST https://acme-data.s3.us-east-1.amazonaws.com/incoming/large.bin?uploadId=abc
+  # PutObjectAcl, which can make an object public, shares PutObject's method
+  # and path.
+  - PUT https://acme-data.s3.us-east-1.amazonaws.com/incoming/batch-1.csv?acl
+
+- name: other buckets are other hosts, which no policy can claim
+  actor: research/agent
+  allow:
+  - request: GET https://other-bucket.s3.us-east-1.amazonaws.com/secret.txt
+    reason: unclaimed
+  - request: GET https://acme-data.s3.dualstack.us-east-1.amazonaws.com/reports/2026/q3.parquet
+    reason: unclaimed
+
+- name: research cannot write, or use the bucket's other names
+  actor: research/agent
+  deny:
+  - request: PUT https://acme-data.s3.us-east-1.amazonaws.com/reports/2026/q3.parquet
+    reason: no_route
+    policy: s3-acme-data-lockdown
+  - request: DELETE https://acme-data.s3.us-east-1.amazonaws.com/reports/2026/q3.parquet
+    reason: no_route
+  - request: POST https://acme-data.s3.us-east-1.amazonaws.com/?delete
+    reason: no_route
+  # The legacy global name and the path-style endpoints are locked down.
+  - request: GET https://acme-data.s3.amazonaws.com/reports/2026/q3.parquet
+    reason: no_route
+  - request: GET https://s3.us-east-1.amazonaws.com/acme-data/reports/2026/q3.parquet
+    reason: no_route
+  - request: GET https://s3.us-east-1.amazonaws.com/other-bucket/secret.txt
+    reason: no_route
+  - request: GET https://s3.amazonaws.com/other-bucket/secret.txt
+    reason: no_route
+
+- name: ingest cannot change the bucket itself
+  actor: ingest/agent
+  deny:
+  # Bucket-level writes are all on "/".
+  - request: PUT https://acme-data.s3.us-east-1.amazonaws.com/?policy
+    reason: no_route
+  - request: PUT https://acme-data.s3.us-east-1.amazonaws.com/?acl
+    reason: no_route
+  - request: PUT https://acme-data.s3.us-east-1.amazonaws.com/
+    reason: no_route
+  - request: DELETE https://acme-data.s3.us-east-1.amazonaws.com/
+    reason: no_route
+  - request: DELETE https://acme-data.s3.us-east-1.amazonaws.com/?policy
+    reason: no_route
+  # DeleteObjects, the batch delete: no route can allow it without allowing
+  # every other POST to "/".
+  - request: POST https://acme-data.s3.us-east-1.amazonaws.com/?delete
+    reason: no_route
+  - request: PUT https://s3.us-east-1.amazonaws.com/acme-data/incoming/batch-1.csv
+    reason: no_route
+
+- name: keys no route can allow
+  actor: research/agent
+  deny:
+  - request: GET https://acme-data.s3.us-east-1.amazonaws.com/a//b
+    reason: path
+  - request: GET https://acme-data.s3.us-east-1.amazonaws.com/a/../b
+    reason: path
+  - request: GET https://acme-data.s3.us-east-1.amazonaws.com/100%25.txt
+    reason: path
+  - request: GET https://acme-data.s3.us-east-1.amazonaws.com/a%5Cb
+    reason: path
+  # "**" never matches a trailing slash, so folder markers are not reached.
+  - request: GET https://acme-data.s3.us-east-1.amazonaws.com/folder/
+    reason: no_route
+
+- name: folder markers are not written either
+  actor: ingest/agent
+  deny:
+  - request: PUT https://acme-data.s3.us-east-1.amazonaws.com/folder/
+    reason: no_route
+
+- name: every other atespace is locked out of the bucket
+  actor: billing/agent
+  deny:
+  - request: GET https://acme-data.s3.us-east-1.amazonaws.com/reports/2026/q3.parquet
+    reason: no_route
+    policy: s3-acme-data-lockdown
+  - request: GET https://acme-data.s3.us-east-1.amazonaws.com/
+    reason: no_route

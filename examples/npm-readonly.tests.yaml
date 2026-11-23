@@ -1,0 +1,78 @@
+# Tests for npm-readonly.yaml. Run them with:
+#
+#   ategressctl test examples/npm-readonly.tests.yaml
+#
+# docs/ategressctl.md describes the format.
+policies:
+- npm-readonly.yaml
+
+tests:
+- name: every actor reads unscoped packages
+  actor: research/agent
+  allow:
+  - request: GET https://registry.npmjs.org/left-pad
+    policy: npm-readonly
+    template: /*
+  - HEAD https://registry.npmjs.org/left-pad
+  - request: GET https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz
+    template: /*/-/*
+  # A scoped package's tarball, which a lockfile records with the slash
+  # not encoded.
+  - request: GET https://registry.npmjs.org/@babel/core/-/core-8.1.3.tgz
+    template: /*/*/-/*
+
+- name: what the routes match beyond their purpose
+  actor: research/agent
+  allow:
+  # /* is any single segment, not only a package name.
+  - request: GET https://registry.npmjs.org/favicon.ico
+    template: /*
+  # The file name is not checked to belong to the package.
+  - request: GET https://registry.npmjs.org/left-pad/-/something-else-9.9.9.tgz
+    template: /*/-/*
+
+- name: scoped package documents cannot be read
+  actor: research/agent
+  deny:
+  # What the npm CLI sends: an encoded slash, which no template can allow.
+  - request: GET https://registry.npmjs.org/@babel%2fcore
+    reason: path
+  - request: GET https://registry.npmjs.org/@babel%2Fcore
+    reason: path
+  # The unencoded form, which the CLI does not send.
+  - request: GET https://registry.npmjs.org/@babel/core
+    reason: no_route
+
+- name: no publish, login, tokens, search or audit
+  actor: research/agent
+  deny:
+  - request: GET https://registry.npmjs.org/left-pad/latest
+    reason: no_route
+  - request: PUT https://registry.npmjs.org/left-pad
+    reason: no_route
+    policy: npm-readonly
+  - request: DELETE https://registry.npmjs.org/left-pad/-rev/1-abc
+    reason: no_route
+  - request: DELETE https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz
+    reason: no_route
+  - request: PUT https://registry.npmjs.org/-/user/org.couchdb.user:mallory
+    reason: no_route
+  # What `npm install` sends unless run with --no-audit.
+  - request: POST https://registry.npmjs.org/-/npm/v1/security/advisories/bulk
+    reason: no_route
+  - request: GET https://registry.npmjs.org/-/whoami
+    reason: no_route
+  - request: GET https://registry.npmjs.org/-/v1/search?text=left-pad
+    reason: no_route
+  - request: GET https://registry.npmjs.org/-/npm/v1/tokens
+    reason: no_route
+  - request: GET https://registry.npmjs.org/
+    reason: no_route
+
+- name: the same for every atespace
+  actor: billing/agent
+  allow:
+  - GET https://registry.npmjs.org/left-pad
+  deny:
+  - request: PUT https://registry.npmjs.org/left-pad
+    reason: no_route

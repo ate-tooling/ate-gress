@@ -47,9 +47,9 @@
   ok    deny   billing/agent  GET https://raw.githubusercontent.com/acme/widget/main/README.md
   ok    deny   billing/agent  POST https://api.github.com/graphql
   hosts the policies do not claim are left to Substrate's EgressPolicy
-  ok    allow  research/agent  GET https://pypi.org/simple/requests/
+  ok    allow  research/agent  GET https://proxy.golang.org/github.com/acme/widget/@v/list
   ok    allow  research/agent  GET https://gist.github.com/acme
   unclaimed hosts for other atespaces too
-  ok    allow  billing/agent  GET https://pypi.org/simple/requests/
+  ok    allow  billing/agent  GET https://proxy.golang.org/github.com/acme/widget/@v/list
 
 45 passed, 0 failed
