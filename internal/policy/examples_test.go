@@ -12,6 +12,9 @@ import (
 	"github.com/ate-tooling/ate-gress/internal/identity"
 )
 
+// loadExample reads the examples as v1alpha1, whatever apiVersion they name:
+// that is how the API server hands them to ate-gress, and the versions have
+// one schema.
 func loadExample(t *testing.T, name string) []v1alpha1.EgressRoutePolicy {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join("..", "..", "examples", name))
