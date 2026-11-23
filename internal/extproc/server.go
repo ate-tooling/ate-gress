@@ -24,6 +24,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/ate-tooling/ate-gress/internal/identity"
+	"github.com/ate-tooling/ate-gress/internal/loglimit"
 	"github.com/ate-tooling/ate-gress/internal/policy"
 )
 
@@ -49,6 +50,8 @@ type Server struct {
 	log     *slog.Logger
 	metrics *Metrics
 	now     func() time.Time
+	// limiter rate-limits denial and audit logs; nil leaves them unlimited.
+	limiter *loglimit.Limiter[logKey]
 }
 
 // NewServer returns a Server deciding against store.
@@ -234,6 +237,12 @@ func header(k, v string) *corev3.HeaderValueOption {
 // allowed requests a policy with logAllowed claims, and other allowed
 // requests at Debug. It records no header values: the request may carry a
 // credential Substrate injected.
+//
+// Denials and audits are rate-limited per logKey, because the actor decides
+// how many there are. A record written after others were suppressed says how
+// many. The allowed requests of logAllowed policies are not limited: the
+// operator asked for all of them. Nor is anything when the logger is at
+// Debug, which records every decision.
 func (s *Server) logDecision(ctx context.Context, pr parsedRequest, d policy.Decision) {
 	level := slog.LevelDebug
 	if !d.Allowed || d.Audited || d.LogAllowed {
@@ -241,6 +250,25 @@ func (s *Server) logDecision(ctx context.Context, pr parsedRequest, d policy.Dec
 	}
 	if !s.log.Enabled(ctx, level) {
 		return
+	}
+	// An allowed request that is not logged has returned by now, so only
+	// requests that would write a record reach the limiter's lock.
+	var suppressed slog.Attr
+	if (!d.Allowed || d.Audited) && s.limiter != nil && !s.log.Enabled(ctx, slog.LevelDebug) {
+		ok, n, shared := s.limiter.Allow(newLogKey(pr, d), s.now())
+		if !ok {
+			s.metrics.logSuppressed()
+			return
+		}
+		switch {
+		case n == 0:
+		case shared:
+			// Too many keys were busy to track this one; the count is of
+			// records of any key that went untracked.
+			suppressed = slog.Uint64("suppressed_untracked", n)
+		default:
+			suppressed = slog.Uint64("suppressed", n)
+		}
 	}
 	path, _, _ := strings.Cut(pr.Path, "?")
 	if len(path) > maxLoggedPath {
@@ -260,6 +288,7 @@ func (s *Server) logDecision(ctx context.Context, pr parsedRequest, d policy.Dec
 		slog.String("policy", d.Policy),
 		slog.String("pattern", d.Pattern),
 		slog.String("request_id", pr.requestID),
+		suppressed, // the zero Attr is not written
 	)
 }
 

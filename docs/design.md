@@ -38,6 +38,7 @@ internal/pathmatch   Canonicalize (strict path validation) and Template (compile
 internal/identity    actor SPIFFE ID parsing
 internal/policy      Compile(policies) -> Snapshot; Snapshot.Decide(request) -> Decision
 internal/extproc     ext_proc gRPC server: protocol in, Decide, protocol out
+internal/loglimit    per-key token buckets for the decision log
 internal/controller  informer -> Compile -> Store; status writer
 internal/tlsconfig   mTLS with per-handshake certificate reload
 ```
@@ -66,6 +67,41 @@ thin adapters around it.
 `Decide` does not allocate for lowercase authorities, and takes about 130ns
 on an M-series laptop. A whole ext_proc round trip in-process takes about
 300ns. The cost that matters is the gateway-to-ate-gress network hop.
+
+## Decision logs
+
+Denials and audits are logged at `INFO`, and the actor decides how many there
+are. An agent looping on a denied path would otherwise set the log volume,
+and bury the denials of every other actor. So those records are rate-limited
+with a token bucket per key: `--deny-log-burst` lines at once, then
+`--deny-log-rate` lines a second.
+
+- **The key** is the actor, the outcome (deny or audit), the reason and the
+  policy. Each is authenticated or bounded. The path and the authority are
+  not in it, because the actor chooses them, and a key the actor can vary
+  gets a fresh burst each time. A request denied before its identity is
+  parsed (reasons `headers` and `identity`) has no authenticated actor, so
+  all such denials share one key per reason. The `actor` field of those
+  records is whatever string arrived.
+- **Nothing is lost silently.** The first record for a key is always
+  written. A record written after others were dropped carries their number
+  as `suppressed`, and `ategress_decision_logs_suppressed_total` counts every
+  dropped record. `ategress_decisions_total` is unaffected. What can go
+  unreported in the log is the last fraction of a second of a flood that
+  then stops for good: its count waits for a next record that never comes.
+- **Memory is bounded.** The limiter tracks at most 4096 keys. A key is only
+  forgotten once its bucket has refilled, when forgetting it changes nothing.
+  If every tracked bucket is still in use, a new key is charged to one shared
+  bucket instead, and its records carry `suppressed_untracked`, a count
+  across all such keys. Evicting a busy key instead would let more than 4096
+  looping actors displace each other and log without limit.
+- **What is not limited.** The allowed requests of `logAllowed` policies,
+  because the operator asked for a complete record of them. And everything
+  when the log level is `DEBUG`, which records every decision.
+
+An allowed request that logs nothing at `INFO` returns before the limiter, so
+the limiter's lock is taken only by requests that would otherwise write a log
+record.
 
 ## Control plane
 

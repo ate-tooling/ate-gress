@@ -68,6 +68,8 @@ spec:
         {{- end }}
         - --actor-trust-domain={{ .Values.actorTrustDomain }}
         - --log-level={{ .Values.logLevel }}
+        - --deny-log-rate={{ .Values.denyLogRate }}
+        - --deny-log-burst={{ .Values.denyLogBurst | int }}
         - --drain-delay={{ .Values.drainDelay }}
         - --stop-timeout={{ .Values.stopTimeout }}
         - --leader-election-namespace=$(POD_NAMESPACE)

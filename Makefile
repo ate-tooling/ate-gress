@@ -34,7 +34,7 @@ fuzz: ## Run each fuzz target for FUZZTIME.
 
 .PHONY: bench
 bench: ## Benchmarks for the request path.
-	go test -run='^$$' -bench=. -benchmem ./internal/pathmatch ./internal/identity ./internal/policy ./internal/extproc
+	go test -run='^$$' -bench=. -benchmem ./internal/pathmatch ./internal/identity ./internal/policy ./internal/loglimit ./internal/extproc
 
 ENVOY_IMAGE ?= envoyproxy/envoy:v1.39.5
 
