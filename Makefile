@@ -83,6 +83,10 @@ docker-build:
 chart-package: ## Package the chart as a release would: make chart-package VERSION=0.1.0 DIGEST=sha256:...
 	hack/package-chart.sh $(VERSION) $(DIGEST) dist
 
+.PHONY: ategressctl-dist
+ategressctl-dist: ## Build the ategressctl release binaries: make ategressctl-dist VERSION=0.1.0
+	hack/build-ategressctl.sh $(VERSION) dist
+
 .PHONY: verify-release
 verify-release: ## Verify a published release's signatures and attestations: make verify-release VERSION=0.1.0
 	hack/verify-release.sh $(VERSION)
