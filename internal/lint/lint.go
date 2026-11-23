@@ -66,7 +66,7 @@ var (
 	DuplicateItem = Check{"ERP002", "duplicate-item", Error,
 		"A method, path, host or selector glob is listed twice; the API server rejects the policy."}
 	Compile = Check{"ERP003", "compile", Error,
-		"The compiler rejects the policy, so none of its routes is applied and it allows nothing."}
+		"The compiler rejects the policy: it allows nothing, and still claims its hosts for the actors it selects."}
 	AuditShadowed = Check{"ERP101", "audit-shadowed", Warning,
 		"An Audit policy never has effect on a host: an Enforce policy claims the host for every actor it selects."}
 	AuditPartlyShadowed = Check{"ERP102", "audit-partly-shadowed", Warning,
@@ -119,11 +119,14 @@ type EgressPolicy struct {
 	Actor *identity.Actor
 }
 
-// Validate reports the policies of set that a cluster would not apply: those
-// the API server would reject (Schema, DuplicateItem) and those the compiler
-// rejects (Compile). It returns the snapshot policy.Compile builds from the
-// set, which is what ate-gress would serve from, and the compiler's results
-// in the order of set.Documents.
+// Validate reports the policies of set that a cluster would not apply as
+// written: those the API server would reject (Schema, DuplicateItem) and those
+// the compiler rejects (Compile). It returns the snapshot policy.Compile
+// builds from the set, which is what ate-gress would serve from, and the
+// compiler's results in the order of set.Documents.
+//
+// A policy the compiler rejects is still in that snapshot, as a claim on its
+// hosts with no routes, and the Compile finding says what it claims.
 func Validate(set *policyfile.Set) (*policy.Snapshot, []policy.Result, []Finding) {
 	l := &linter{}
 	snap, results := policy.Compile(set.Policies())
@@ -138,7 +141,7 @@ func Validate(set *policyfile.Set) (*policy.Snapshot, []policy.Result, []Finding
 		}
 		if err := results[i].Err; err != nil {
 			field, msg := splitCompileError(err.Error())
-			l.add(Compile, d, field, "%s", msg)
+			l.add(Compile, d, field, "%s. %s", msg, results[i].Effect)
 		}
 	}
 	return snap, results, l.findings
@@ -309,13 +312,18 @@ func intersect(a, b []policyfile.Method) []string {
 // claims its host for its actor. As soon as one does, the request is allowed
 // or denied by the Enforce policies' routes alone: an Audit policy's routes
 // are not consulted, and nothing is recorded as an audit.
+//
+// A rejected Enforce policy is such a policy. It claims its hosts with no
+// routes, for the actors its selector is read to select, so it shadows an
+// Audit policy as a lockdown would. A rejected Audit policy has no routes to
+// shadow and is not looked at: its Compile finding says what it claims.
 func (l *linter) audit(docs map[string]*policyfile.Document, host string, claims []policy.Claim) {
 	for _, p := range claims {
-		if !p.Audit {
+		if !p.Audit || p.Rejected {
 			continue
 		}
 		d := docs[p.Policy]
-		var partly, maybe []string
+		var partly, maybe []policy.Claim
 		var example identity.Actor
 		covered := false
 		for _, q := range claims {
@@ -323,8 +331,8 @@ func (l *linter) audit(docs map[string]*policyfile.Document, host string, claims
 				continue
 			}
 			if selectorCovers(q, p) {
-				msg := fmt.Sprintf("never has effect on %s: Enforce policy %q claims the host for every actor this Audit policy selects, "+
-					"and an Enforce policy always takes precedence, so these routes are never consulted and no audit is ever recorded", host, q.Policy)
+				msg := fmt.Sprintf("never has effect on %s: %s claims the host for every actor this Audit policy selects, "+
+					"and an Enforce policy always takes precedence, so these routes are never consulted and no audit is ever recorded", host, enforceName(q))
 				if p.LogAllowed {
 					msg += "; its logAllowed still applies"
 				}
@@ -337,9 +345,9 @@ func (l *linter) audit(docs map[string]*policyfile.Document, host string, claims
 				if len(partly) == 0 {
 					example = actor
 				}
-				partly = append(partly, q.Policy)
+				partly = append(partly, q)
 			case overlapUnknown:
-				maybe = append(maybe, q.Policy)
+				maybe = append(maybe, q)
 			}
 		}
 		if covered {
@@ -359,10 +367,24 @@ func (l *linter) audit(docs map[string]*policyfile.Document, host string, claims
 	}
 }
 
-func quoted(singular, plural string, names []string) string {
-	q := make([]string, len(names))
-	for i, n := range names {
-		q[i] = fmt.Sprintf("%q", n)
+// enforceName names an Enforce policy's claim for a message, and says when
+// the policy was rejected, since it then shadows with a claim that allows
+// nothing.
+func enforceName(c policy.Claim) string {
+	return "Enforce policy " + claimName(c)
+}
+
+func claimName(c policy.Claim) string {
+	if c.Rejected {
+		return fmt.Sprintf("%q (rejected: it allows nothing and still claims the host)", c.Policy)
+	}
+	return fmt.Sprintf("%q", c.Policy)
+}
+
+func quoted(singular, plural string, claims []policy.Claim) string {
+	q := make([]string, len(claims))
+	for i, c := range claims {
+		q[i] = claimName(c)
 	}
 	if len(q) == 1 {
 		return singular + " " + q[0]

@@ -170,8 +170,16 @@ type policies struct {
 	set  *policyfile.Set
 	snap *policy.Snapshot
 	// invalid lists the policies a cluster would not apply as written. When
-	// it is not empty, snap is not what any cluster would serve from, and
-	// commands that report decisions refuse to.
+	// it is not empty, commands that report decisions refuse to.
+	//
+	// snap does give a rejected policy its effect in a cluster: it allows
+	// nothing and still claims its hosts. The refusal is not about that. The
+	// compiler re-checks what the schema checks, so a policy it rejects is
+	// one the API server refuses too, and a set holding one is not a set a
+	// cluster with this CustomResourceDefinition can hold; it gets there only
+	// past an older schema. Deciding against it would answer a question about
+	// a cluster that cannot exist, and the policy needs fixing before any
+	// answer matters.
 	invalid []lint.Finding
 }
 

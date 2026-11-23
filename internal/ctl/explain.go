@@ -34,17 +34,21 @@ type claimReport struct {
 	Policy     string `json:"policy"`
 	Mode       string `json:"mode"`
 	LogAllowed bool   `json:"logAllowed"`
+	// Rejected is set for a policy the compiler rejected, which claims the
+	// host with no routes.
+	Rejected bool `json:"rejected,omitempty"`
 	// Alone is what the decision would be if this were the only policy.
 	Alone decision `json:"alone"`
 }
 
 // reasonText says what each reason means, in terms of the policies.
 var reasonText = map[policy.Reason]string{
-	policy.ReasonUnclaimed: "no policy that selects the actor claims the host, so the request is left to Substrate's EgressPolicy",
-	policy.ReasonRoute:     "a route matched the method and path",
-	policy.ReasonNoRoute:   "the host is claimed for the actor and no route matches the method and path",
-	policy.ReasonPath:      "the host is claimed for the actor and the path is one an upstream could read differently, such as an encoded slash, a dot segment or an empty segment",
-	policy.ReasonAuthority: "the authority is not a hostname or IP literal with an optional port",
+	policy.ReasonUnclaimed:     "no policy that selects the actor claims the host, so the request is left to Substrate's EgressPolicy",
+	policy.ReasonRoute:         "a route matched the method and path",
+	policy.ReasonNoRoute:       "the host is claimed for the actor and no route matches the method and path",
+	policy.ReasonPath:          "the host is claimed for the actor and the path is one an upstream could read differently, such as an encoded slash, a dot segment or an empty segment",
+	policy.ReasonInvalidPolicy: "the host is claimed for the actor only by policies the compiler rejected, which allow nothing and still claim their hosts",
+	policy.ReasonAuthority:     "the authority is not a hostname or IP literal with an optional port",
 }
 
 const explainHelp = `Decides one request as ate-gress would and says why: the decision and its
@@ -101,7 +105,7 @@ func runExplain(args []string, env Env) error {
 	host, claims, _ := loaded.snap.ClaimsFor(req.Authority, actor)
 	ex.Host = host
 	for _, claim := range claims {
-		cr := claimReport{Policy: claim.Policy, Mode: "Enforce", LogAllowed: claim.LogAllowed}
+		cr := claimReport{Policy: claim.Policy, Mode: "Enforce", LogAllowed: claim.LogAllowed, Rejected: claim.Rejected}
 		if claim.Audit {
 			cr.Mode = "Audit"
 		}
@@ -166,6 +170,9 @@ func printExplanation(env Env, ex explanation) {
 		mode := c.Mode
 		if c.LogAllowed {
 			mode += ", logAllowed"
+		}
+		if c.Rejected {
+			mode += ", rejected"
 		}
 		alone := c.Alone.Decision + " (" + c.Alone.Reason
 		if c.Alone.Template != "" {

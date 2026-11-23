@@ -26,7 +26,7 @@
           "file": "testdata/lint/invalid.yaml",
           "document": 1,
           "field": "spec.hosts[0].routes[0].paths",
-          "message": "pattern \"/repos/**/pulls\": \"**\" must be the last segment"
+          "message": "pattern \"/repos/**/pulls\": \"**\" must be the last segment. The policy allows nothing and still claims its hosts: requests to them from the actors it selects are denied unless another Enforce policy allows them."
         },
         {
           "code": "ERP002",

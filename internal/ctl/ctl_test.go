@@ -186,8 +186,9 @@ func TestTestFileErrors(t *testing.T) {
 		{"request without a method", "tests:\n- actor: a/b\n  allow: [https://a.example.com/]\n", `tests[0].allow[0]: request "https://a.example.com/" is not "<METHOD> <URL>"`},
 		{"request without a scheme", "tests:\n- actor: a/b\n  deny: [GET a.example.com/x]\n", "tests[0].deny[0]"},
 		{"request without a host", "tests:\n- actor: a/b\n  deny: [GET https:///x]\n", "has no host"},
-		{"misspelled reason", "tests:\n- actor: a/b\n  deny:\n  - request: GET https://a.example.com/\n    reason: noroute\n", `reason "noroute" is not one a request under "deny" can have (no_route, path, authority)`},
+		{"misspelled reason", "tests:\n- actor: a/b\n  deny:\n  - request: GET https://a.example.com/\n    reason: noroute\n", `reason "noroute" is not one a request under "deny" can have (no_route, path, invalid_policy, authority)`},
 		{"reason of another outcome", "tests:\n- actor: a/b\n  allow:\n  - request: GET https://a.example.com/\n    reason: no_route\n", `can have (route, unclaimed)`},
+		{"invalid_policy under allow", "tests:\n- actor: a/b\n  allow:\n  - request: GET https://a.example.com/\n    reason: invalid_policy\n", `can have (route, unclaimed)`},
 	}
 	dir := t.TempDir()
 	for _, tt := range tests {
@@ -300,5 +301,16 @@ func TestParseURL(t *testing.T) {
 		if _, err := parseURL(bad, "https://a.example.com/"); err == nil {
 			t.Errorf("parseURL with method %q: want an error", bad)
 		}
+	}
+}
+
+// TestInvalidPolicyReason checks that a test file may expect invalid_policy
+// wherever Decide can give it: a denial, when a rejected Enforce policy is
+// all that claims the host, and an audit, when rejected Audit policies are.
+func TestInvalidPolicyReason(t *testing.T) {
+	data := "tests:\n- actor: a/b\n  deny:\n  - request: GET https://a.example.com/\n    reason: invalid_policy\n" +
+		"  audit:\n  - request: GET https://b.example.com/\n    reason: invalid_policy\n"
+	if _, cases, err := parseTestFile([]byte(data)); err != nil || len(cases) != 2 {
+		t.Fatalf("parseTestFile = %d cases, %v", len(cases), err)
 	}
 }

@@ -58,10 +58,16 @@ func (e *expectation) UnmarshalJSON(data []byte) error {
 // reasons lists the reasons Decide gives for each outcome, so that a
 // misspelled one in a test file is an error and not a test that can never
 // pass.
+//
+// invalid_policy is a reason Decide gives, for a host that only rejected
+// policies claim for the actor: a denial when one of them is Enforce, and an
+// audit when all are Audit. test refuses a set with a rejected policy today,
+// so no case can pass with it, but a test file that names it is not
+// misspelled.
 var reasons = map[string][]policy.Reason{
 	outcomeAllow: {policy.ReasonRoute, policy.ReasonUnclaimed},
-	outcomeDeny:  {policy.ReasonNoRoute, policy.ReasonPath, policy.ReasonAuthority},
-	outcomeAudit: {policy.ReasonNoRoute, policy.ReasonPath},
+	outcomeDeny:  {policy.ReasonNoRoute, policy.ReasonPath, policy.ReasonInvalidPolicy, policy.ReasonAuthority},
+	outcomeAudit: {policy.ReasonNoRoute, policy.ReasonPath, policy.ReasonInvalidPolicy},
 }
 
 // testCase is one expectation, ready to run.

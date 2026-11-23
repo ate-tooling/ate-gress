@@ -1,5 +1,5 @@
 testdata/lint/invalid.yaml: bad-template: spec.hosts[0].routes[0].paths[0]: error ERP001 (schema): should match '^(/|(/([.]*[A-Za-z0-9_~!$&'()+,;=:@-][A-Za-z0-9_~!$&'()+,;=:@.-]*|[.][.][.]+|[*]))+/?|(/([.]*[A-Za-z0-9_~!$&'()+,;=:@-][A-Za-z0-9_~!$&'()+,;=:@.-]*|[.][.][.]+|[*]))*/[*][*])$'
-testdata/lint/invalid.yaml: bad-template: spec.hosts[0].routes[0].paths: error ERP003 (compile): pattern "/repos/**/pulls": "**" must be the last segment
+testdata/lint/invalid.yaml: bad-template: spec.hosts[0].routes[0].paths: error ERP003 (compile): pattern "/repos/**/pulls": "**" must be the last segment. The policy allows nothing and still claims its hosts: requests to them from the actors it selects are denied unless another Enforce policy allows them.
 testdata/lint/invalid.yaml#2: listed-twice: spec.hosts[0].routes[0].methods[1]: error ERP002 (duplicate-item): Duplicate value: "GET"
 testdata/lint/invalid.yaml#2: listed-twice: spec.hosts[0].routes[0].paths[2]: error ERP002 (duplicate-item): Duplicate value: "/a"
 testdata/lint/invalid.yaml#3: misspelled-field: spec.enforcmentMode: error ERP001 (schema): unknown field

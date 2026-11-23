@@ -15,7 +15,7 @@
     "code": "ERP003",
     "name": "compile",
     "severity": "error",
-    "summary": "The compiler rejects the policy, so none of its routes is applied and it allows nothing."
+    "summary": "The compiler rejects the policy: it allows nothing, and still claims its hosts for the actors it selects."
   },
   {
     "code": "ERP101",

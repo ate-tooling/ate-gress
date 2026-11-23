@@ -105,14 +105,27 @@ func TestInvalidPolicies(t *testing.T) {
 	if results[0].Err == nil || results[3].Err != nil {
 		t.Errorf("compile results = %+v", results)
 	}
-	// The policy the compiler rejected is out of the snapshot; one only the
-	// API server would reject is still in it.
-	var claiming []string
+	// Every policy is in the snapshot. The one the compiler rejected is a
+	// claim with no routes, which fails closed; one only the API server
+	// would reject compiled as it was decoded.
+	var claiming, rejected []string
 	for _, c := range snap.Claims("api.github.com") {
 		claiming = append(claiming, c.Policy)
+		if c.Rejected {
+			rejected = append(rejected, c.Policy)
+		}
 	}
-	if want := []string{"fine", "twice", "typo"}; !slices.Equal(claiming, want) {
+	if want := []string{"bad-template", "fine", "twice", "typo"}; !slices.Equal(claiming, want) {
 		t.Errorf("policies in the snapshot = %v, want %v", claiming, want)
+	}
+	if want := []string{"bad-template"}; !slices.Equal(rejected, want) {
+		t.Errorf("rejected claims = %v, want %v", rejected, want)
+	}
+	// The compile finding says what the rejected policy does meanwhile.
+	for _, f := range invalid {
+		if f.Code == Compile.Code && !strings.Contains(f.Message, "allows nothing and still claims its hosts") {
+			t.Errorf("compile finding %q does not say what the policy claims", f.Message)
+		}
 	}
 	// Run reports the same, and nothing more for a duplicate the schema
 	// check already has.
@@ -214,6 +227,39 @@ func TestAuditShadowing(t *testing.T) {
 			message: `Enforce policies "enforce-a", "enforce-b"`,
 		},
 		{
+			// A rejected policy keeps its claims with no routes, and a glob
+			// that does not compile is read as selecting everything: it is a
+			// lockdown of the host for every atespace.
+			name: "a rejected Enforce policy shadows it as a lockdown",
+			manifests: []string{enforcePolicy("rejected", "{atespaces: [Research]}", "a.example.com"),
+				auditPolicy("audit", "{atespaces: [research]}", "a.example.com")},
+			want: []string{
+				"rejected spec.actorSelector.atespaces[0] ERP001",
+				"rejected spec.actorSelector.atespaces ERP003",
+				"audit spec.hosts[0] ERP101",
+			},
+		},
+		{
+			// The names list still narrows the selector.
+			name: "a rejected Enforce policy shadows it for the actors it is read to select",
+			manifests: []string{enforcePolicy("rejected", "{atespaces: [Research], names: [bot]}", "a.example.com"),
+				auditPolicy("audit", "", "a.example.com")},
+			want: []string{
+				"rejected spec.actorSelector.atespaces[0] ERP001",
+				"rejected spec.actorSelector.atespaces ERP003",
+				"audit spec.hosts[0] ERP102",
+			},
+		},
+		{
+			name: "a rejected Audit policy is left to its compile finding",
+			manifests: []string{enforcePolicy("lockdown", "", "a.example.com"),
+				auditPolicy("rejected", "{atespaces: [Research]}", "a.example.com")},
+			want: []string{
+				"rejected spec.actorSelector.atespaces[0] ERP001",
+				"rejected spec.actorSelector.atespaces ERP003",
+			},
+		},
+		{
 			// "*-" matches no DNS label, so the policies never meet, but that
 			// is not something the glob reasoning proves: it says "may".
 			name:      "an overlap that could not be settled",
@@ -253,6 +299,31 @@ func TestAuditShadowedIsTrue(t *testing.T) {
 					t.Errorf("%+v: %+v with the Audit policy and %+v without", r, a, b)
 				}
 			}
+		}
+	}
+}
+
+// TestRejectedShadowIsTrue checks ERP101 for a rejected Enforce policy
+// against Decide, as TestAuditShadowedIsTrue does for an accepted one, and
+// that the finding says the policy was rejected.
+func TestRejectedShadowIsTrue(t *testing.T) {
+	rejected := enforcePolicy("rejected", "{atespaces: [Research]}", "a.example.com")
+	audit := manifest("audit", "enforcementMode: Audit\nactorSelector: {atespaces: [research]}\nhosts:\n- host: a.example.com\n  routes:\n  - methods: [GET]\n    paths: [/**]")
+	with := load(t, rejected, audit)
+	findings := Run(with, nil)
+	check(t, findings,
+		"rejected spec.actorSelector.atespaces[0] ERP001", "rejected spec.actorSelector.atespaces ERP003", "audit spec.hosts[0] ERP101")
+	if len(findings) == 3 && !strings.Contains(findings[2].Message, `Enforce policy "rejected" (rejected: it allows nothing and still claims the host)`) {
+		t.Errorf("ERP101 does not say the Enforce policy was rejected: %s", findings[2].Message)
+	}
+
+	withSnap, _ := policy.Compile(with.Policies())
+	withoutSnap, _ := policy.Compile(load(t, rejected).Policies())
+	for _, actor := range []identity.Actor{{Atespace: "research", Name: "x"}, {Atespace: "other", Name: "x"}} {
+		r := policy.Request{Actor: actor, Method: "GET", Authority: "a.example.com", Path: "/a"}
+		a, b := withSnap.Decide(r), withoutSnap.Decide(r)
+		if a.Allowed || b.Allowed || a.Reason != policy.ReasonInvalidPolicy || b.Reason != policy.ReasonInvalidPolicy {
+			t.Errorf("%+v: %+v with the Audit policy and %+v without; want both denied with %s", r, a, b, policy.ReasonInvalidPolicy)
 		}
 	}
 }

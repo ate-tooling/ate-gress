@@ -54,6 +54,12 @@ group that is not a readable `EgressRoutePolicy` is an error wherever it is
 found, so a mistyped `kind` or an unknown version is never skipped. Two
 policies with one name are an error: a cluster holds one.
 
+A policy may be written as any version the CustomResourceDefinition serves,
+`v1beta1` or `v1alpha1`. Each is checked against its own version's schema,
+and both read the same, as the API server reads them: it stores either as
+`v1alpha1` and changes only the `apiVersion`
+([API versions](../README.md#api-versions)).
+
 ### Validation
 
 Every command first checks each policy twice, and reports what fails:
@@ -65,10 +71,19 @@ Every command first checks each policy twice, and reports what fails:
    method, path, host or glob listed twice), and unknown fields, which
    `kubectl apply` refuses by default.
 2. **As ate-gress would when it compiles.** A policy the compiler rejects
-   allows nothing: none of its routes is applied.
+   allows nothing and still claims its hosts: none of its routes is applied,
+   and requests to its hosts from the actors it selects are denied with
+   reason `invalid_policy` unless another `Enforce` policy allows them. Its
+   mode is read as `Enforce` unless it says `Audit`, and a selector list with
+   a glob that does not compile as selecting everyone. The `ERP003` finding
+   says what the policy claims.
 
-`test` and `explain` stop when a policy fails either check. A decision made
-against a policy set no cluster would hold says nothing.
+`test` and `explain` stop when a policy fails either check. The compiler
+re-checks everything the schema checks, so a policy it rejects is also one the
+API server refuses: a cluster with this CRD cannot hold the set, and reaches
+it only past an older CRD. A decision made against a policy set no cluster
+would hold says nothing, and the policy needs fixing first. `lint` does read
+such a set, with the rejected policy's claims in it.
 
 The first check is tested against a real API server. The test suite submits a
 table of valid and invalid policies to one and requires the offline verdict to
@@ -128,7 +143,7 @@ must equal the decision's; the ones you leave out are not checked.
 | Field | Meaning |
 |---|---|
 | `request` | `<METHOD> <URL>` |
-| `reason` | The decision's reason: `route` or `unclaimed` under `allow`; `no_route`, `path` or `authority` under `deny`; `no_route` or `path` under `audit` |
+| `reason` | The decision's reason: `route` or `unclaimed` under `allow`; `no_route`, `path`, `invalid_policy` or `authority` under `deny`; `no_route`, `path` or `invalid_policy` under `audit` |
 | `policy` | Under `allow`, the policy whose route matched. Under `deny` and `audit`, the first policy, by name, that claims the host for the actor |
 | `template` | The path template that matched |
 
@@ -186,7 +201,9 @@ only one. It comes from compiling that policy by itself and deciding again,
 so it shows which policy a request depends on.
 
 For a denied or audited request, `policy` is the first policy claiming the
-host. That is what ate-gress logs; no policy matched.
+host. That is what ate-gress logs; no policy matched. With reason
+`invalid_policy` it is the first rejected policy that decided. A rejected
+policy is marked `rejected` in the list of claims.
 
 `explain` exits `0` whatever the decision is, and `1` if a policy is invalid.
 
@@ -204,7 +221,7 @@ stable code and name, the policy, its file, and the field it is about.
 |---|---|---|---|
 | `ERP001` | `schema` | error | The API server would reject the policy |
 | `ERP002` | `duplicate-item` | error | A method, path, host or selector glob is listed twice; the API server rejects the policy |
-| `ERP003` | `compile` | error | The compiler rejects the policy, so none of its routes is applied |
+| `ERP003` | `compile` | error | The compiler rejects the policy: it allows nothing and still claims its hosts for the actors it selects, so they are denied with `invalid_policy` unless another `Enforce` policy allows them |
 | `ERP101` | `audit-shadowed` | warning | An `Audit` policy never has effect on a host: an `Enforce` policy claims the host for every actor it selects |
 | `ERP102` | `audit-partly-shadowed` | warning | The same, for some of its actors. The finding names one |
 | `ERP103` | `audit-maybe-shadowed` | info | An `Enforce` policy claims the host too, and whether their selectors can select the same actor could not be settled |
@@ -227,7 +244,11 @@ not.
 **Audit policies.** An `Enforce` policy on a host always takes precedence:
 once one claims the host for an actor, the request is decided by the
 `Enforce` policies' routes alone. An `Audit` policy's routes are not
-consulted and no audit is recorded. Its `logAllowed` still applies.
+consulted and no audit is recorded. Its `logAllowed` still applies. A
+rejected `Enforce` policy counts: it claims its hosts with no routes, for the
+actors its selector is read to select, so it shadows an `Audit` policy as a
+lockdown would, and the finding says it was rejected. A rejected `Audit`
+policy is left to its `ERP003` finding.
 
 Whether that happens depends on whether two selectors select the same actor,
 and selectors are globs. Lint separates three cases:
@@ -333,7 +354,8 @@ The JSON:
   `decision` (`allow`, `deny` or `audit`), `reason`, `policy` and `template`.
 - `explain`: `actor`, `method`, `url`, `authority`, `path`, `host`,
   `decision`, `reason`, `policy`, `template`, `logAllowed`, and `claims`, each
-  with `policy`, `mode`, `logAllowed` and `alone`.
+  with `policy`, `mode`, `logAllowed`, `rejected` (only when set) and
+  `alone`.
 - `lint`: `findings`, each with `code`, `name`, `severity`, `policy`, `file`,
   `document` (the position of the YAML document in the file, from 1), `field`
   and `message`; and `summary`, the count per severity.

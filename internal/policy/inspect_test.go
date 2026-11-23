@@ -28,7 +28,8 @@ func inspectPolicies() []v1alpha1.EgressRoutePolicy {
 func TestSnapshotClaims(t *testing.T) {
 	s, _ := Compile(inspectPolicies())
 
-	// A policy the compiler left out claims nothing.
+	// A rejected policy claims only the hosts a request could name, and
+	// "NOT A HOST" is none.
 	if got, want := s.Hosts(), []string{"api.github.com", "github.com"}; !slices.Equal(got, want) {
 		t.Fatalf("Hosts() = %v, want %v", got, want)
 	}
@@ -91,5 +92,37 @@ func TestSnapshotClaimsFor(t *testing.T) {
 		if tt.ok && (d.Reason == ReasonUnclaimed) != (len(claims) == 0) {
 			t.Errorf("ClaimsFor(%q, %v) has %d claims, but Decide's reason is %s", tt.authority, tt.actor, len(claims), d.Reason)
 		}
+	}
+}
+
+func TestSnapshotClaimsRejected(t *testing.T) {
+	broken := v1alpha1.EgressRoutePolicy{}
+	broken.Name = "broken"
+	broken.Spec = v1alpha1.EgressRoutePolicySpec{
+		EnforcementMode: "Enforcing",
+		ActorSelector:   v1alpha1.ActorSelector{Atespaces: []string{"Research"}, Names: []string{"agent"}},
+		Hosts: []v1alpha1.HostRoutes{{Host: "api.github.com", Routes: []v1alpha1.Route{
+			{Methods: []v1alpha1.Method{"GET"}, Paths: []string{"/a/**/b"}},
+		}}},
+	}
+	s, results := Compile([]v1alpha1.EgressRoutePolicy{broken})
+	if results[0].Err == nil {
+		t.Fatal("the policy compiled")
+	}
+	claims := s.Claims("api.github.com")
+	if len(claims) != 1 {
+		t.Fatalf("Claims() = %+v, want the rejected policy's claim", claims)
+	}
+	c := claims[0]
+	// The claim is read the way that denies more, and says it is rejected.
+	if !c.Rejected || c.Audit || c.Atespaces != nil || !slices.Equal(c.Names, []string{"agent"}) {
+		t.Errorf("claim = %+v, want a rejected Enforce claim selecting every atespace and the name agent", c)
+	}
+	if !c.Selects(identity.Actor{Atespace: "billing", Name: "agent"}) || c.Selects(identity.Actor{Atespace: "billing", Name: "bot"}) {
+		t.Error("Selects disagrees with the conservative selector")
+	}
+	d := s.Decide(Request{Actor: identity.Actor{Atespace: "billing", Name: "agent"}, Method: "GET", Authority: "api.github.com", Path: "/a/x/b"})
+	if d.Allowed || d.Reason != ReasonInvalidPolicy {
+		t.Errorf("Decide = %+v, want a denial with reason %s", d, ReasonInvalidPolicy)
 	}
 }

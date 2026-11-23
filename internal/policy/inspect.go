@@ -15,6 +15,12 @@ type Claim struct {
 	Policy string
 	// Audit is set for an Audit policy and clear for an Enforce one.
 	Audit bool
+	// Rejected is set for a policy that did not compile. It claims the host
+	// with no routes, so it allows nothing, and its mode and selector are
+	// the ones rejectedClaims reads from what was written: Enforce unless
+	// the policy says Audit, and a selector list with a glob that does not
+	// compile selecting everything.
+	Rejected bool
 	// LogAllowed is the policy's logAllowed.
 	LogAllowed bool
 	// Atespaces and Names are the selector's globs, as written. A nil list
@@ -45,6 +51,7 @@ func (s *Snapshot) Claims(host string) []Claim {
 		out[i] = Claim{
 			Policy:     hp.policy,
 			Audit:      hp.mode == modeAudit,
+			Rejected:   hp.rejected,
 			LogAllowed: hp.logAllowed,
 			Atespaces:  patterns(hp.selector.atespaces),
 			Names:      patterns(hp.selector.names),
