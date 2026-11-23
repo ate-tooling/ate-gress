@@ -1,5 +1,5 @@
 # Pull requests and main run the checks, the fuzzers for a short while, the
-# real-Envoy integration test, and an image build. The release workflow calls
+# real-Envoy integration test, a chart upgrade, and an image build. The release workflow calls
 # this one first, so a tag is published only from a commit that passes it.
 # The kind end-to-end test (hack/e2e-kind.sh) needs a running Substrate and is
 # run against one.
@@ -111,3 +111,27 @@ jobs:
         load: true
         tags: ate-gress:ci
     - run: docker run --rm ate-gress:ci --help
+
+  # Installs a published chart on a kind cluster and upgrades it to this
+  # commit's, to prove that `helm upgrade` upgrades the CRD. "latest" is the
+  # upgrade the next release's users make. 0.1.0-rc.3 is pinned because it is
+  # the last chart whose CRD lacks logAllowed and trailing-slash templates, so
+  # that upgrade has to change the schema, and because it shipped the CRD in
+  # crds/, so it also covers the adoption step in the README.
+  upgrade:
+    name: Chart upgrade (from ${{ matrix.from }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        from: [latest, 0.1.0-rc.3]
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
+    # kind, kubectl and jq come with the runner image.
+    - run: hack/upgrade-kind.sh "${FROM}"
+      env:
+        FROM: ${{ matrix.from }}
