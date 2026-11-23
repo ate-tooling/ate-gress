@@ -30,6 +30,14 @@ probePort: 8081
 # requests of policies with logAllowed.
 logLevel: INFO
 
+# At INFO, each actor may log denyLogBurst denials or audits at once for one
+# reason and policy, then denyLogRate a second; the next line logged carries
+# the number dropped. An actor looping on a denied route then cannot flood
+# the log. denyLogRate: 0 logs every denial. The allowed requests of policies
+# with logAllowed are never dropped, and nothing is at DEBUG.
+denyLogRate: 1
+denyLogBurst: 10
+
 # After SIGTERM, keep serving for drainDelay so the gateway's DNS refresh
 # stops sending new streams, then give open streams stopTimeout to finish.
 drainDelay: 10s

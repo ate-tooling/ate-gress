@@ -111,7 +111,7 @@ by path; `POST /graphql` is the main case.
 | Ports | `9443` ext_proc (gRPC, mTLS), `8080` metrics, `8081` `/healthz` `/readyz` |
 | Readiness | Not ready until the first policy snapshot is built from a synced cache |
 | Metrics | `ategress_decisions_total{decision,reason}`, `ategress_decision_duration_seconds`, `ategress_snapshot_generation`, `ategress_policies{state}` |
-| Logs | JSON. Denials, audits, and the allowed requests of `logAllowed` policies at `INFO`; every decision at `DEBUG`. Header values are never logged, because they may hold an injected credential |
+| Logs | JSON. Denials, audits, and the allowed requests of `logAllowed` policies at `INFO`; every decision at `DEBUG`. Header values are never logged, because they may hold an injected credential. At `INFO`, denials and audits are rate-limited for each actor, reason and policy: `--deny-log-burst` lines (default 10), then `--deny-log-rate` lines a second (default 1; `0` disables the limit). The next line logged carries the number dropped as `suppressed`, and `ategress_decision_logs_suppressed_total` counts them. `logAllowed` records are never dropped, and `ategress_decisions_total` counts every decision |
 | Shutdown | On SIGTERM it goes NOT_SERVING, serves for `--drain-delay` while the gateway's DNS moves on, then drains streams |
 | Scaling | Stateless; every replica serves from its own informer cache. The headless Service lets the gateway balance across replicas |
 

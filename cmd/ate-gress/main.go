@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"math"
 	"net"
 	"net/http"
 	"os"
@@ -54,6 +55,8 @@ type options struct {
 	logLevel         slog.Level
 	drainDelay       time.Duration
 	stopTimeout      time.Duration
+	denyLogRate      float64
+	denyLogBurst     int
 }
 
 func parseFlags(args []string) (options, error) {
@@ -72,16 +75,35 @@ func parseFlags(args []string) (options, error) {
 	fs.BoolVar(&o.leaderElect, "leader-elect", true, "Elect a leader to write policy status. Every replica serves requests either way.")
 	fs.StringVar(&o.leaderElectionNS, "leader-election-namespace", "", "Namespace for the leader election lease; defaults to the pod's.")
 	fs.TextVar(&o.logLevel, "log-level", slog.LevelInfo, "Minimum log level: DEBUG logs every decision, INFO denials, audits, and allowed requests of policies with logAllowed.")
+	fs.Float64Var(&o.denyLogRate, "deny-log-rate", 1,
+		"Denial and audit log lines per second for one actor, reason and policy once its burst is spent; a later line carries the count suppressed. 0 disables the limit. Nothing is limited at DEBUG.")
+	fs.IntVar(&o.denyLogBurst, "deny-log-burst", 10, "Denial and audit log lines one actor, reason and policy may log at once before --deny-log-rate applies.")
 	fs.DurationVar(&o.drainDelay, "drain-delay", 10*time.Second,
 		"How long to keep serving after SIGTERM, so the gateway's DNS refresh stops sending new streams first.")
 	fs.DurationVar(&o.stopTimeout, "stop-timeout", 10*time.Second, "How long to wait for open streams to finish after the drain delay.")
 	if err := fs.Parse(args); err != nil {
 		return options{}, err
 	}
+	if err := validateDenyLogLimit(o.denyLogRate, o.denyLogBurst); err != nil {
+		// Parse reports its own errors; main prints nothing more.
+		fmt.Fprintln(fs.Output(), err)
+		return options{}, err
+	}
 	if len(o.allowedClients) == 0 {
 		o.allowedClients = stringList{"spiffe://cluster.local/ns/ate-system/sa/atenet-egress"}
 	}
 	return o, nil
+}
+
+func validateDenyLogLimit(rate float64, burst int) error {
+	// The negated comparison also rejects NaN, which the flag package parses.
+	if !(rate >= 0) || math.IsInf(rate, 0) {
+		return fmt.Errorf("--deny-log-rate must be a number of lines per second, or 0 to disable the limit; got %v", rate)
+	}
+	if rate > 0 && burst < 1 {
+		return fmt.Errorf("--deny-log-burst must be at least 1; got %d", burst)
+	}
+	return nil
 }
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -149,6 +171,7 @@ func run(ctx context.Context, o options, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	server.LimitDecisionLogs(o.denyLogRate, o.denyLogBurst)
 	if err := mgr.Add(&extproc.Runnable{
 		Listener: lis, Server: gs, Health: hs, Log: log,
 		DrainDelay: o.drainDelay, StopTimeout: o.stopTimeout,

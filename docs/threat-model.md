@@ -29,6 +29,7 @@
 | ate-gress down or slow, to fail open | The filter's `failure_mode_allow: false`; ate-gress not ready before its first snapshot | `test/envoy` "fails closed", `TestProcessNotReady` |
 | A malformed policy widening access | Schema validation at admission; the compiler re-validates and excludes failures, which can only remove allows | `TestSchemaRejects`, `TestCompileRejects`, `FuzzSchemaAgreesWithCompiler` |
 | An Audit policy widening an Enforce policy | Audit routes never allow on a host an Enforce policy claims | `TestDecideEnforceOutranksAudit` |
+| Log flooding: an actor repeating denied requests, to run up log volume or bury other actors' denials | Denial and audit logs are rate-limited by actor, outcome, reason and policy, none of which the actor can vary freely; path and authority are not in the key. Denials made before an identity is parsed share one key per reason, so a made-up identity earns nothing. The limiter's table is capped, and keys beyond the cap share one bucket. Dropped lines are counted on the next line logged and in `ategress_decision_logs_suppressed_total` | `TestDecisionLogLimit`, `TestDecisionLogLimitKeys`, `TestDecisionLogLimitBeforeIdentity`, `TestDecisionLogLimitBound`, `internal/loglimit` |
 | Credential leakage via logs | No header values logged, including for `logAllowed`; the path is logged without its query | `TestDecisionLogOmitsHeaderValues`, `TestDecisionLogLevels` |
 
 ## Residual risk
