@@ -7,6 +7,12 @@ image:
   digest: ""
   pullPolicy: IfNotPresent
 
+# The EgressRoutePolicy CRD is part of the release, so `helm upgrade` upgrades
+# it. Uninstalling keeps it, and the policies with it. Set install to false to
+# apply the CRD yourself, from the release's ate-gress-<version>-crds.yaml.
+crds:
+  install: true
+
 # Every replica decides requests; one at a time is elected to write status.
 replicas: 2
 

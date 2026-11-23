@@ -71,9 +71,12 @@ docker buildx build --platform "linux/${arch}" --load -t "${image}" "${root}" >/
 docker push -q "${image}"
 
 step "installing ate-gress"
+# The CRD is applied here and left out of the release. Clusters this has run
+# on before hold a CRD that kubectl owns, which the chart's would conflict
+# with. hack/upgrade-kind.sh tests the chart's CRD.
 "${kubectl[@]}" apply --server-side -f "${root}/config/crd/"
 helm --kube-context "${context}" upgrade --install ate-gress "${root}/charts/ate-gress" \
-  --namespace ate-gress --create-namespace --wait --timeout 5m \
+  --namespace ate-gress --create-namespace --wait --timeout 5m --set crds.install=false \
   --set image.repository="${image%:*}" --set image.tag="${image##*:}" --set image.pullPolicy=Always
 "${kubectl[@]}" -n ate-gress rollout restart deploy/ate-gress
 "${kubectl[@]}" -n ate-gress rollout status deploy/ate-gress --timeout=5m

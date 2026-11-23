@@ -16,7 +16,7 @@ FUZZTIME ?= 10s
 generate: ## Regenerate deepcopy code, the CRD, and RBAC.
 	$(CONTROLLER_GEN) object crd rbac:roleName=ate-gress paths=./... \
 		output:crd:artifacts:config=config/crd output:rbac:artifacts:config=config/rbac
-	cp config/crd/*.yaml $(CHART)/crds/
+	hack/generate-chart-crds.sh
 	sed -n '/^rules:/,$$p' config/rbac/role.yaml | tail -n +2 > $(CHART)/files/clusterrole-rules.yaml
 
 .PHONY: test
