@@ -113,8 +113,10 @@ jobs:
     - run: docker run --rm ate-gress:ci --help
 
   # Installs a published chart on a kind cluster and upgrades it to this
-  # commit's, to prove that `helm upgrade` upgrades the CRD. "latest" is the
-  # upgrade the next release's users make. 0.1.0-rc.3 is pinned because it is
+  # commit's, to prove that `helm upgrade` upgrades the CRD, then rolls back,
+  # to prove that the earlier CRD can be put back with every policy kept.
+  # "latest" is the upgrade the next release's users make, and the rollback
+  # they would make. 0.1.0-rc.3 is pinned because it is
   # the last chart whose CRD lacks logAllowed and trailing-slash templates, so
   # that upgrade has to change the schema, and because it shipped the CRD in
   # crds/, so it also covers the adoption step in the README.
