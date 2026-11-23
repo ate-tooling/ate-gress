@@ -18,6 +18,9 @@ type Snapshot struct {
 	// hosts maps a lowercase host to the policies that claim it, sorted by
 	// policy name so decisions are deterministic.
 	hosts map[string][]*hostPolicy
+	// logHosts holds the hosts claimed by at least one policy with
+	// LogAllowed, so Decide can skip looking for one everywhere else.
+	logHosts map[string]bool
 }
 
 type mode uint8
@@ -72,7 +75,7 @@ type Result struct {
 // left out, which can only remove allows, and its Result carries the error.
 // Results are in the order of policies.
 func Compile(policies []v1alpha1.EgressRoutePolicy) (*Snapshot, []Result) {
-	s := &Snapshot{hosts: make(map[string][]*hostPolicy)}
+	s := &Snapshot{hosts: make(map[string][]*hostPolicy), logHosts: make(map[string]bool)}
 	results := make([]Result, len(policies))
 	for i := range policies {
 		p := &policies[i]
@@ -84,6 +87,9 @@ func Compile(policies []v1alpha1.EgressRoutePolicy) (*Snapshot, []Result) {
 		}
 		for host, hp := range hps {
 			s.hosts[host] = append(s.hosts[host], hp)
+			if hp.logAllowed {
+				s.logHosts[host] = true
+			}
 		}
 	}
 	for _, hps := range s.hosts {

@@ -91,6 +91,12 @@ denied on claimed hosts instead of being normalized. That covers encoded
 `/`, and non-ASCII. See
 [the threat model](docs/threat-model.md).
 
+A single trailing slash, as in `/repos/acme/widget/`, is not such a path: it
+is matched like any other, and a request no template allows is denied with
+reason `no_route`, not `path`. Before trailing-slash templates were
+supported it was denied with `path`, so alerts on `reason=path` no longer
+see it.
+
 [`examples/github-single-org.yaml`](examples/github-single-org.yaml) is a
 complete single-organization GitHub setup, covering the REST API, git
 clone/fetch, archives and raw content. It explains what cannot be filtered

@@ -178,9 +178,9 @@ func TestDecide(t *testing.T) {
 		{name: "registry manifest", actor: other, method: "HEAD", authority: "registry-1.docker.io", path: "/v2/library/alpine/manifests/3.22",
 			want: Decision{Allowed: true, Reason: ReasonRoute, Policy: "registry-pull", Pattern: "/**", LogAllowed: true}},
 		{name: "registry push", actor: other, method: "POST", authority: "registry-1.docker.io", path: "/v2/library/alpine/blobs/uploads/",
-			want: Decision{Reason: ReasonNoRoute, Policy: "registry-pull", LogAllowed: true}},
+			want: Decision{Reason: ReasonNoRoute, Policy: "registry-pull"}},
 		{name: "registry trailing slash ** does not reach", actor: other, method: "GET", authority: "registry-1.docker.io", path: "/v2/library/alpine/tags/",
-			want: Decision{Reason: ReasonNoRoute, Policy: "registry-pull", LogAllowed: true}},
+			want: Decision{Reason: ReasonNoRoute, Policy: "registry-pull"}},
 
 		// Audit mode allows, but says it would not have.
 		{name: "audit allows a matching route", actor: other, method: "GET", authority: "gitlab.com", path: "/api/v4/groups/acme/projects",
@@ -409,6 +409,7 @@ func TestDecideDoesNotAllocate(t *testing.T) {
 		{Actor: research, Method: "GET", Authority: "api.github.com", Path: "/repos/acme/widget/contents/README.md?ref=main"},
 		{Actor: research, Method: "GET", Authority: "api.github.com", Path: "/repos/evil/widget"},
 		{Actor: research, Method: "GET", Authority: "pypi.org", Path: "/simple/requests"},
+		{Actor: other, Method: "GET", Authority: "registry-1.docker.io", Path: "/v2/"},
 	} {
 		if allocs := testing.AllocsPerRun(100, func() { s.Decide(r) }); allocs != 0 {
 			t.Errorf("Decide(%+v) allocated %v times per call, want 0", r, allocs)
@@ -491,9 +492,9 @@ func referenceDecide(policies []v1alpha1.EgressRoutePolicy, r Request) Decision 
 	case enforceClaim && enforceMatch, !enforceClaim && auditMatch:
 		return Decision{Allowed: true, Reason: ReasonRoute, LogAllowed: logAllowed}
 	case enforceClaim:
-		return Decision{Reason: reason, LogAllowed: logAllowed}
+		return Decision{Reason: reason}
 	default:
-		return Decision{Allowed: true, Audited: true, Reason: reason, LogAllowed: logAllowed}
+		return Decision{Allowed: true, Audited: true, Reason: reason}
 	}
 }
 
