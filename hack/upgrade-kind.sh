@@ -271,8 +271,13 @@ EOF
 "${kubectl[@]}" create --validate=strict -f "${work}/beta.yaml"
 beta="$(manifest_spec "${work}/beta.yaml")"
 expect_policy upgrade-beta "${beta}"
-"${kubectl[@]}" apply --dry-run=server --validate=strict -f "${root}/examples" >/dev/null
-echo "ok    the API server accepts examples/"
+# examples/ also holds ategressctl test files, which are not Kubernetes objects.
+examples=()
+for f in "${root}"/examples/*.yaml; do
+  [[ "${f}" == *.tests.yaml ]] || examples+=(-f "${f}")
+done
+"${kubectl[@]}" apply --dry-run=server --validate=strict "${examples[@]}" >/dev/null
+echo "ok    the API server accepts the policies in examples/"
 
 step "re-applying a v1alpha1 manifest"
 # What a GitOps tool does on every sync with manifests that still say
