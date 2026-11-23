@@ -71,7 +71,7 @@ func parseFlags(args []string) (options, error) {
 	fs.StringVar(&o.trustDomain, "actor-trust-domain", identity.DefaultTrustDomain, "Trust domain of actor SPIFFE IDs.")
 	fs.BoolVar(&o.leaderElect, "leader-elect", true, "Elect a leader to write policy status. Every replica serves requests either way.")
 	fs.StringVar(&o.leaderElectionNS, "leader-election-namespace", "", "Namespace for the leader election lease; defaults to the pod's.")
-	fs.TextVar(&o.logLevel, "log-level", slog.LevelInfo, "Minimum log level: DEBUG logs every decision, INFO denials and audits.")
+	fs.TextVar(&o.logLevel, "log-level", slog.LevelInfo, "Minimum log level: DEBUG logs every decision, INFO denials, audits, and allowed requests of policies with logAllowed.")
 	fs.DurationVar(&o.drainDelay, "drain-delay", 10*time.Second,
 		"How long to keep serving after SIGTERM, so the gateway's DNS refresh stops sending new streams first.")
 	fs.DurationVar(&o.stopTimeout, "stop-timeout", 10*time.Second, "How long to wait for open streams to finish after the drain delay.")

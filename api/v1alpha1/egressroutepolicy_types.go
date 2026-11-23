@@ -40,6 +40,15 @@ type EgressRoutePolicySpec struct {
 	// +optional
 	ActorSelector ActorSelector `json:"actorSelector,omitzero"`
 
+	// LogAllowed logs allowed requests at INFO, as denials and audits always
+	// are: every request the selected actors send to the hosts this policy
+	// lists, whichever policy's route allowed it. The record has the actor,
+	// method, authority, the path without its query, and the policy and
+	// template that matched. Without it, allowed requests are logged only at
+	// DEBUG. Header values are never logged.
+	// +optional
+	LogAllowed bool `json:"logAllowed,omitempty"`
+
 	// Hosts lists the hosts the policy claims and the routes allowed on each.
 	// +listType=map
 	// +listMapKey=host
@@ -88,23 +97,26 @@ type Route struct {
 	Methods []Method `json:"methods"`
 
 	// Paths are path templates. Each segment is a literal, "*" (exactly one
-	// segment), or "**" (one or more segments, last only). The query string is
-	// not matched. Literals may not contain "%".
+	// segment), or "**" (one or more segments, last only). A template may end
+	// in "/" to match that one trailing slash: "/v2/" matches "/v2/" only,
+	// and "*" and "**" never match the empty segment it leaves. The query
+	// string is not matched. Literals may not contain "%".
 	// +listType=set
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=32
 	// +kubebuilder:validation:items:MaxLength=1024
 	//
 	// The pattern below is the whole template grammar, as an OpenAPI pattern
-	// rather than CEL so that it costs nothing against the CEL budget: "/", or
-	// segments that are each "*" or a literal, the last of which may be "**".
-	// A literal is pchar without "*" or "%", and is not "." or "..": it is
-	// either three or more dots, or has a non-dot character.
+	// rather than CEL so that it costs nothing against the CEL budget: "/";
+	// or segments that are each "*" or a literal, optionally followed by one
+	// trailing "/"; or such segments followed by a last "**". A literal is
+	// pchar without "*" or "%", and is not "." or "..": it is either three or
+	// more dots, or has a non-dot character.
 	// +listType=set
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=32
 	// +kubebuilder:validation:items:MaxLength=1024
-	// +kubebuilder:validation:items:Pattern=`^(/|(/([.]*[A-Za-z0-9_~!$&'()+,;=:@-][A-Za-z0-9_~!$&'()+,;=:@.-]*|[.][.][.]+|[*]))*/([.]*[A-Za-z0-9_~!$&'()+,;=:@-][A-Za-z0-9_~!$&'()+,;=:@.-]*|[.][.][.]+|[*]|[*][*]))$`
+	// +kubebuilder:validation:items:Pattern=`^(/|(/([.]*[A-Za-z0-9_~!$&'()+,;=:@-][A-Za-z0-9_~!$&'()+,;=:@.-]*|[.][.][.]+|[*]))+/?|(/([.]*[A-Za-z0-9_~!$&'()+,;=:@-][A-Za-z0-9_~!$&'()+,;=:@.-]*|[.][.][.]+|[*]))*/[*][*])$`
 	Paths []string `json:"paths"`
 
 	// CaseInsensitive matches literal segments ASCII case-insensitively, for

@@ -24,6 +24,8 @@ func TestCanonicalize(t *testing.T) {
 		{name: "dot inside segment", raw: "/acme/widget.git/info/refs", want: "/acme/widget.git/info/refs"},
 		{name: "benign escape", raw: "/contents/My%20File", want: "/contents/My%20File"},
 		{name: "lowercase hex escape", raw: "/a%c3%a9", want: "/a%c3%a9"},
+		{name: "trailing slash", raw: "/v2/", want: "/v2/"},
+		{name: "trailing slash before query", raw: "/orgs/acme/?x=1", want: "/orgs/acme/"},
 
 		{name: "empty", raw: "", wantErr: ErrNotAbsolute},
 		{name: "relative", raw: "repos/acme", wantErr: ErrNotAbsolute},
@@ -33,7 +35,10 @@ func TestCanonicalize(t *testing.T) {
 
 		{name: "double slash", raw: "/repos//acme", wantErr: ErrEmptySegment},
 		{name: "leading double slash", raw: "//evil.example/repos", wantErr: ErrEmptySegment},
-		{name: "trailing slash", raw: "/orgs/acme/", wantErr: ErrEmptySegment},
+		{name: "double trailing slash", raw: "/orgs/acme//", wantErr: ErrEmptySegment},
+		{name: "only slashes", raw: "//", wantErr: ErrEmptySegment},
+		{name: "empty segment before trailing slash", raw: "/a//b/", wantErr: ErrEmptySegment},
+		{name: "trailing slash after dot-dot", raw: "/repos/acme/../", wantErr: ErrDotSegment},
 
 		{name: "dot segment", raw: "/repos/./acme", wantErr: ErrDotSegment},
 		{name: "dot-dot segment", raw: "/repos/acme/../evil", wantErr: ErrDotSegment},
@@ -90,11 +95,12 @@ func TestCanonicalizeDoesNotAllocate(t *testing.T) {
 
 // FuzzCanonicalize checks the property Canonicalize exists to provide: an
 // accepted path reads the same whether or not an upstream percent-decodes and
-// cleans it before routing.
+// cleans it before routing. The one difference allowed is that cleaning drops
+// a single trailing slash.
 func FuzzCanonicalize(f *testing.F) {
 	for _, s := range []string{
 		"/", "/repos/acme/widget", "/repos/acme/widget?x=1", "/a%20b", "//x", "/a/../b",
-		"/a%2Fb", "/a%2e%2e", "/a%252F", `/a\b`, "/a/b/", "/%", "/%c3%a9", "/a;b=c/d",
+		"/a%2Fb", "/a%2e%2e", "/a%252F", `/a\b`, "/a/b/", "/a/b//", "/a/../", "/%", "/%c3%a9", "/a;b=c/d",
 	} {
 		f.Add(s)
 	}
@@ -123,8 +129,12 @@ func FuzzCanonicalize(f *testing.F) {
 		if strings.Count(decoded, "/") != strings.Count(got, "/") {
 			t.Fatalf("decoding %q to %q changed the segment count", got, decoded)
 		}
-		if path.Clean(decoded) != decoded {
-			t.Fatalf("decoded path %q changes under path.Clean: %q", decoded, path.Clean(decoded))
+		want := decoded
+		if decoded != "/" {
+			want = strings.TrimSuffix(decoded, "/")
+		}
+		if path.Clean(decoded) != want {
+			t.Fatalf("decoded path %q changes under path.Clean, beyond a trailing slash: %q", decoded, path.Clean(decoded))
 		}
 		if twice, err := url.PathUnescape(decoded); err == nil && strings.Count(twice, "/") != strings.Count(got, "/") {
 			t.Fatalf("double-decoding %q to %q changed the segment count", got, twice)

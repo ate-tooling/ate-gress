@@ -5,8 +5,9 @@
 // HTTP connection managers set none of Envoy's normalization options. This
 // package is therefore where ambiguous paths are refused. Canonicalize never
 // repairs a path. Anything an upstream could read differently from the way a
-// template reads it (an encoded separator, a dot segment, an empty segment)
-// is an error, and the caller denies the request.
+// template reads it (an encoded separator, a dot segment, an empty segment
+// other than a single trailing one) is an error, and the caller denies the
+// request.
 package pathmatch
 
 import (
@@ -30,8 +31,9 @@ var (
 //
 // It returns an error, and no path, if any of these hold:
 //   - the path does not start with "/";
-//   - any segment other than the single segment of "/" is empty, so "//" and
-//     a trailing "/" are refused;
+//   - any segment other than the last is empty, so "//" and "/a//b" are
+//     refused. The last may be empty: "/v2/" is accepted, as one trailing
+//     slash after a non-empty segment, but "/v2//" is not;
 //   - any segment is "." or "..";
 //   - any byte is not an RFC 3986 pchar or the start of a percent-escape, so
 //     controls, spaces, non-ASCII, "\", and "#" are refused;
@@ -41,6 +43,9 @@ var (
 // Under these rules, percent-decoding an accepted path once cannot introduce
 // a separator or a dot segment, and a second decode cannot change it. An
 // upstream that decodes before routing sees the same segments a template does.
+// A trailing slash is the one thing an upstream may read differently: it may
+// treat "/v2/" as "/v2". Templates match a trailing empty segment only where
+// they spell it, so at worst that is the resource the template named.
 //
 // Canonicalize does not allocate. The returned string is a prefix of raw.
 func Canonicalize(raw string) (string, error) {
@@ -54,6 +59,11 @@ func Canonicalize(raw string) (string, error) {
 	rest := p[1:]
 	for {
 		seg, after, more := strings.Cut(rest, "/")
+		if seg == "" && !more {
+			// A single trailing slash. The segment before it was non-empty:
+			// "//" fails on its first, empty, segment.
+			return p, nil
+		}
 		if err := checkSegment(seg); err != nil {
 			return "", err
 		}

@@ -10,7 +10,12 @@ func TestCompileRejects(t *testing.T) {
 		"",
 		"repos/acme",
 		"/repos//acme",
-		"/repos/acme/",
+		"//",
+		"/repos/acme//",
+		"/repos//",
+		"/repos/**/",
+		"/**/",
+		"/repos/../",
 		"/repos/../acme",
 		"/repos/./acme",
 		"/repos/**/acme",
@@ -76,6 +81,44 @@ func TestMatch(t *testing.T) {
 			noMatch: []string{"/"},
 		},
 		{
+			pattern: "/v2/",
+			match:   []string{"/v2/"},
+			noMatch: []string{"/", "/v2", "/v2/x", "/v2/x/", "/v3/"},
+		},
+		{
+			pattern:         "/V2/",
+			caseInsensitive: true,
+			match:           []string{"/v2/", "/V2/"},
+			noMatch:         []string{"/v2"},
+		},
+		{
+			pattern: "/v2/*/",
+			match:   []string{"/v2/library/"},
+			noMatch: []string{"/v2/", "/v2/library", "/v2/library/alpine/"},
+		},
+		{
+			pattern: "/*/",
+			match:   []string{"/v2/"},
+			noMatch: []string{"/", "/v2"},
+		},
+		{
+			// Wildcards never match the empty segment a trailing slash
+			// leaves, so policies written before trailing slashes were
+			// allowed allow nothing new.
+			pattern: "/**",
+			noMatch: []string{"/v2/", "/v2/library/alpine/"},
+		},
+		{
+			pattern: "/v2/**",
+			match:   []string{"/v2/library/alpine/manifests/3.22"},
+			noMatch: []string{"/v2/", "/v2", "/v2/library/"},
+		},
+		{
+			pattern: "/v2/*",
+			match:   []string{"/v2/x"},
+			noMatch: []string{"/v2/", "/v2/x/"},
+		},
+		{
 			pattern: "/*/*/info/refs",
 			match:   []string{"/acme/widget.git/info/refs", "/acme/widget/info/refs"},
 			noMatch: []string{"/acme/info/refs", "/acme/widget/info/refs/x", "/acme/widget/info/ref"},
@@ -114,12 +157,15 @@ func TestMatchDoesNotAllocate(t *testing.T) {
 	}
 }
 
-// FuzzMatch checks that Match never panics on canonical input, and that a
-// template without wildcards matches only the path it spells.
+// FuzzMatch checks that Match never panics on canonical input, that a
+// template without wildcards matches only the path it spells, and that a
+// template without a trailing slash never matches a path with one.
 func FuzzMatch(f *testing.F) {
 	f.Add("/repos/acme/*/**", "/repos/acme/widget/pulls", false)
 	f.Add("/orgs/acme", "/orgs/ACME", true)
 	f.Add("/", "/", false)
+	f.Add("/v2/", "/v2/", false)
+	f.Add("/**", "/v2/", false)
 	f.Fuzz(func(t *testing.T, pattern, raw string, fold bool) {
 		tmpl, err := Compile(pattern, fold)
 		if err != nil {
@@ -129,7 +175,13 @@ func FuzzMatch(f *testing.F) {
 		if err != nil {
 			return
 		}
-		if !tmpl.Match(p) || strings.Contains(pattern, "*") {
+		if !tmpl.Match(p) {
+			return
+		}
+		if strings.HasSuffix(p, "/") != strings.HasSuffix(pattern, "/") {
+			t.Fatalf("pattern %q matched %q: they disagree on a trailing slash", pattern, p)
+		}
+		if strings.Contains(pattern, "*") {
 			return
 		}
 		if fold && !strings.EqualFold(p, pattern) || !fold && p != pattern {

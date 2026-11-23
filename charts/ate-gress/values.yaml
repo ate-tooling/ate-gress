@@ -26,7 +26,8 @@ grpcPort: 9443
 metricsPort: 8080
 probePort: 8081
 
-# DEBUG logs every decision; INFO logs denials and audits.
+# DEBUG logs every decision; INFO logs denials, audits, and the allowed
+# requests of policies with logAllowed.
 logLevel: INFO
 
 # After SIGTERM, keep serving for drainDelay so the gateway's DNS refresh

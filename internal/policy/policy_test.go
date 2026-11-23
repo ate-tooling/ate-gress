@@ -2,6 +2,7 @@ package policy
 
 import (
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -14,7 +15,8 @@ import (
 
 // githubPolicies is the layering examples/github-single-org.yaml recommends:
 // every actor is locked out of GitHub, and research actors may read the acme
-// org. gitlab-audit is being trialed in Audit mode.
+// org. gitlab-audit is being trialed in Audit mode. registry-pull lets every
+// actor pull, but not push, container images, and logs what they fetch.
 func githubPolicies() []v1alpha1.EgressRoutePolicy {
 	return []v1alpha1.EgressRoutePolicy{
 		{
@@ -48,6 +50,16 @@ func githubPolicies() []v1alpha1.EgressRoutePolicy {
 				Hosts: []v1alpha1.HostRoutes{{Host: "gitlab.com", Routes: []v1alpha1.Route{{
 					Methods: []v1alpha1.Method{"GET"},
 					Paths:   []string{"/api/v4/groups/acme/**"},
+				}}}},
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "registry-pull"},
+			Spec: v1alpha1.EgressRoutePolicySpec{
+				LogAllowed: true,
+				Hosts: []v1alpha1.HostRoutes{{Host: "registry-1.docker.io", Routes: []v1alpha1.Route{{
+					Methods: []v1alpha1.Method{"GET", "HEAD"},
+					Paths:   []string{"/", "/v2/", "/**"},
 				}}}},
 			},
 		},
@@ -141,7 +153,11 @@ func TestDecide(t *testing.T) {
 			want: Decision{Reason: ReasonPath, Policy: "github-acme-readonly"}},
 		{name: "backslash", actor: research, method: "GET", authority: "api.github.com", path: `/repos/acme\..\evil`,
 			want: Decision{Reason: ReasonPath, Policy: "github-acme-readonly"}},
-		{name: "trailing slash", actor: research, method: "GET", authority: "api.github.com", path: "/orgs/acme/",
+		{name: "trailing slash is not matched by a template without one", actor: research, method: "GET", authority: "api.github.com", path: "/orgs/acme/",
+			want: Decision{Reason: ReasonNoRoute, Policy: "github-acme-readonly"}},
+		{name: "trailing slash is not matched by **", actor: research, method: "GET", authority: "api.github.com", path: "/repos/acme/widget/pulls/",
+			want: Decision{Reason: ReasonNoRoute, Policy: "github-acme-readonly"}},
+		{name: "double trailing slash", actor: research, method: "GET", authority: "api.github.com", path: "/orgs/acme//",
 			want: Decision{Reason: ReasonPath, Policy: "github-acme-readonly"}},
 		{name: "trailing-dot authority is the same host", actor: research, method: "GET", authority: "api.github.com.", path: "/repos/evil/widget",
 			want: Decision{Reason: ReasonNoRoute, Policy: "github-acme-readonly"}},
@@ -155,6 +171,16 @@ func TestDecide(t *testing.T) {
 			want: Decision{Reason: ReasonAuthority}},
 		{name: "empty label", actor: research, method: "GET", authority: "api..github.com", path: "/repos/acme/widget",
 			want: Decision{Reason: ReasonAuthority}},
+
+		// A registry: pulls allowed, including the version check, and logged.
+		{name: "registry version check", actor: other, method: "GET", authority: "registry-1.docker.io", path: "/v2/",
+			want: Decision{Allowed: true, Reason: ReasonRoute, Policy: "registry-pull", Pattern: "/v2/", LogAllowed: true}},
+		{name: "registry manifest", actor: other, method: "HEAD", authority: "registry-1.docker.io", path: "/v2/library/alpine/manifests/3.22",
+			want: Decision{Allowed: true, Reason: ReasonRoute, Policy: "registry-pull", Pattern: "/**", LogAllowed: true}},
+		{name: "registry push", actor: other, method: "POST", authority: "registry-1.docker.io", path: "/v2/library/alpine/blobs/uploads/",
+			want: Decision{Reason: ReasonNoRoute, Policy: "registry-pull", LogAllowed: true}},
+		{name: "registry trailing slash ** does not reach", actor: other, method: "GET", authority: "registry-1.docker.io", path: "/v2/library/alpine/tags/",
+			want: Decision{Reason: ReasonNoRoute, Policy: "registry-pull", LogAllowed: true}},
 
 		// Audit mode allows, but says it would not have.
 		{name: "audit allows a matching route", actor: other, method: "GET", authority: "gitlab.com", path: "/api/v4/groups/acme/projects",
@@ -201,6 +227,90 @@ func TestDecideEnforceOutranksAudit(t *testing.T) {
 	want := Decision{Reason: ReasonNoRoute, Policy: "a-audit-wide-open"}
 	if got != want {
 		t.Errorf("Decide() = %+v, want %+v", got, want)
+	}
+}
+
+func TestDecideLogAllowed(t *testing.T) {
+	// The policies claiming api.github.com, in the order Decide sees them.
+	// b-allow allows the request before Decide reaches c-log, which must
+	// still be found.
+	policy := func(name string, logAllowed bool, sel v1alpha1.ActorSelector, paths ...string) v1alpha1.EgressRoutePolicy {
+		var routes []v1alpha1.Route
+		if len(paths) > 0 {
+			routes = []v1alpha1.Route{{Methods: []v1alpha1.Method{"GET"}, Paths: paths}}
+		}
+		return v1alpha1.EgressRoutePolicy{
+			ObjectMeta: metav1.ObjectMeta{Name: name},
+			Spec: v1alpha1.EgressRoutePolicySpec{
+				LogAllowed: logAllowed, ActorSelector: sel,
+				Hosts: []v1alpha1.HostRoutes{{Host: "api.github.com", Routes: routes}},
+			},
+		}
+	}
+	researchOnly := v1alpha1.ActorSelector{Atespaces: []string{"research-*"}}
+	tests := []struct {
+		name     string
+		policies []v1alpha1.EgressRoutePolicy
+		actor    identity.Actor
+		path     string
+		want     bool
+	}{
+		{
+			name:     "no policy asks",
+			policies: []v1alpha1.EgressRoutePolicy{policy("a", false, v1alpha1.ActorSelector{}, "/**")},
+			actor:    research, path: "/orgs/acme",
+		},
+		{
+			name:     "the allowing policy asks",
+			policies: []v1alpha1.EgressRoutePolicy{policy("a", true, v1alpha1.ActorSelector{}, "/**")},
+			actor:    research, path: "/orgs/acme", want: true,
+		},
+		{
+			name: "an earlier claiming policy asks",
+			policies: []v1alpha1.EgressRoutePolicy{
+				policy("a-log", true, v1alpha1.ActorSelector{}),
+				policy("b-allow", false, v1alpha1.ActorSelector{}, "/**"),
+			},
+			actor: research, path: "/orgs/acme", want: true,
+		},
+		{
+			name: "a later claiming policy asks",
+			policies: []v1alpha1.EgressRoutePolicy{
+				policy("b-allow", false, v1alpha1.ActorSelector{}, "/**"),
+				policy("c-log", true, researchOnly),
+			},
+			actor: research, path: "/orgs/acme", want: true,
+		},
+		{
+			name: "a later policy asks but does not select the actor",
+			policies: []v1alpha1.EgressRoutePolicy{
+				policy("b-allow", false, v1alpha1.ActorSelector{}, "/**"),
+				policy("c-log", true, researchOnly),
+			},
+			actor: other, path: "/orgs/acme",
+		},
+		{
+			name: "an Audit policy asks",
+			policies: func() []v1alpha1.EgressRoutePolicy {
+				p := policy("a", true, v1alpha1.ActorSelector{}, "/**")
+				p.Spec.EnforcementMode = v1alpha1.EnforcementModeAudit
+				return []v1alpha1.EgressRoutePolicy{p}
+			}(),
+			actor: research, path: "/orgs/acme", want: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := mustCompile(t, tt.policies)
+			r := Request{Actor: tt.actor, Method: "GET", Authority: "api.github.com", Path: tt.path}
+			d := s.Decide(r)
+			if !d.Allowed || d.LogAllowed != tt.want {
+				t.Errorf("Decide() = %+v, want allowed with LogAllowed %v", d, tt.want)
+			}
+			if ref := referenceDecide(tt.policies, r); ref.LogAllowed != d.LogAllowed {
+				t.Errorf("reference LogAllowed = %v, Decide says %v", ref.LogAllowed, d.LogAllowed)
+			}
+		})
 	}
 }
 
@@ -313,12 +423,14 @@ func FuzzDecide(f *testing.F) {
 	f.Add("billing", "x", "POST", "GitHub.com:443", "/acme/w/git-upload-pack")
 	f.Add("research-a", "agent-1", "GET", "api.github.com.", "/repos/acme/w/../../evil")
 	f.Add("x", "y", "GET", "gitlab.com", "/api/v4/groups/acme/x")
+	f.Add("x", "y", "GET", "registry-1.docker.io", "/v2/")
+	f.Add("x", "y", "GET", "registry-1.docker.io", "/v2/library/")
 	policies := githubPolicies()
 	s := mustCompile(f, policies)
 	f.Fuzz(func(t *testing.T, atespace, name, method, authority, rawPath string) {
 		r := Request{Actor: identity.Actor{Atespace: atespace, Name: name}, Method: method, Authority: authority, Path: rawPath}
 		got := s.Decide(r)
-		if want := referenceDecide(policies, r); got.Allowed != want.Allowed || got.Audited != want.Audited || got.Reason != want.Reason {
+		if want := referenceDecide(policies, r); got.Allowed != want.Allowed || got.Audited != want.Audited || got.Reason != want.Reason || got.LogAllowed != want.LogAllowed {
 			t.Fatalf("Decide(%+v) = %+v, reference says %+v", r, got, want)
 		}
 	})
@@ -332,7 +444,7 @@ func referenceDecide(policies []v1alpha1.EgressRoutePolicy, r Request) Decision 
 	rawPath, _, _ := strings.Cut(r.Path, "?")
 	pathOK := referencePathOK(rawPath)
 
-	var enforceClaim, auditClaim, enforceMatch, auditMatch bool
+	var enforceClaim, auditClaim, enforceMatch, auditMatch, logAllowed bool
 	for _, p := range policies {
 		if !referenceSelected(p.Spec.ActorSelector, r.Actor) {
 			continue
@@ -347,6 +459,7 @@ func referenceDecide(policies []v1alpha1.EgressRoutePolicy, r Request) Decision 
 			} else {
 				enforceClaim = true
 			}
+			logAllowed = logAllowed || p.Spec.LogAllowed
 			if !pathOK {
 				continue
 			}
@@ -376,11 +489,11 @@ func referenceDecide(policies []v1alpha1.EgressRoutePolicy, r Request) Decision 
 	case !enforceClaim && !auditClaim:
 		return Decision{Allowed: true, Reason: ReasonUnclaimed}
 	case enforceClaim && enforceMatch, !enforceClaim && auditMatch:
-		return Decision{Allowed: true, Reason: ReasonRoute}
+		return Decision{Allowed: true, Reason: ReasonRoute, LogAllowed: logAllowed}
 	case enforceClaim:
-		return Decision{Reason: reason}
+		return Decision{Reason: reason, LogAllowed: logAllowed}
 	default:
-		return Decision{Allowed: true, Audited: true, Reason: reason}
+		return Decision{Allowed: true, Audited: true, Reason: reason, LogAllowed: logAllowed}
 	}
 }
 
@@ -432,7 +545,11 @@ func referencePathOK(p string) bool {
 	if !strings.HasPrefix(p, "/") {
 		return false
 	}
-	for _, seg := range strings.Split(p[1:], "/") {
+	segs := strings.Split(p[1:], "/")
+	if len(segs) > 1 && segs[len(segs)-1] == "" {
+		segs = segs[:len(segs)-1] // one trailing slash
+	}
+	for _, seg := range segs {
 		if seg == "" || seg == "." || seg == ".." {
 			return false
 		}
@@ -479,15 +596,20 @@ func referenceMatch(pattern, p string, fold bool) bool {
 	if pattern == "/" || p == "/" {
 		return pattern == p
 	}
+	// A trailing slash leaves an empty last segment, which only an empty
+	// pattern segment matches: wildcards match non-empty segments.
 	ps, xs := strings.Split(pattern[1:], "/"), strings.Split(p[1:], "/")
 	for i, seg := range ps {
 		if seg == "**" {
-			return len(xs) > i
+			return len(xs) > i && !slices.Contains(xs[i:], "")
 		}
 		if i >= len(xs) {
 			return false
 		}
 		if seg == "*" {
+			if xs[i] == "" {
+				return false
+			}
 			continue
 		}
 		if fold && !strings.EqualFold(seg, xs[i]) || !fold && seg != xs[i] {

@@ -28,10 +28,11 @@ const (
 )
 
 type hostPolicy struct {
-	policy   string
-	mode     mode
-	selector selector
-	routes   []route
+	policy     string
+	mode       mode
+	logAllowed bool
+	selector   selector
+	routes     []route
 }
 
 type route struct {
@@ -121,7 +122,7 @@ func compilePolicy(p *v1alpha1.EgressRoutePolicy) (map[string]*hostPolicy, error
 		if _, dup := out[h.Host]; dup {
 			return nil, fmt.Errorf("hosts[%d]: %q is listed twice", i, h.Host)
 		}
-		hp := &hostPolicy{policy: p.Name, mode: m, selector: sel, routes: make([]route, 0, len(h.Routes))}
+		hp := &hostPolicy{policy: p.Name, mode: m, logAllowed: p.Spec.LogAllowed, selector: sel, routes: make([]route, 0, len(h.Routes))}
 		for j, r := range h.Routes {
 			cr, err := compileRoute(r)
 			if err != nil {

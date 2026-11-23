@@ -66,6 +66,9 @@ type Decision struct {
 	Policy string
 	// Pattern is the path template that allowed the request.
 	Pattern string
+	// LogAllowed is set when a policy that claims the request's host for its
+	// actor has LogAllowed, so the request is to be logged even if allowed.
+	LogAllowed bool
 }
 
 // Decide applies s to r. It is safe for concurrent use and, for a request
@@ -81,16 +84,19 @@ func (s *Snapshot) Decide(r Request) Decision {
 		pathErr                  error
 		pathChecked              bool
 		enforcing, auditing      bool
+		logAllowed               bool
 		firstClaim               string
 		auditMatch, auditPattern string
 	)
-	for _, hp := range s.hosts[host] {
+	hps := s.hosts[host]
+	for i, hp := range hps {
 		if !hp.selector.matches(r.Actor) {
 			continue
 		}
 		if firstClaim == "" {
 			firstClaim = hp.policy
 		}
+		logAllowed = logAllowed || hp.logAllowed
 		if hp.mode == modeEnforce {
 			enforcing = true
 		} else {
@@ -107,7 +113,10 @@ func (s *Snapshot) Decide(r Request) Decision {
 		switch {
 		case !matched:
 		case hp.mode == modeEnforce:
-			return Decision{Allowed: true, Reason: ReasonRoute, Policy: hp.policy, Pattern: pattern}
+			return Decision{
+				Allowed: true, Reason: ReasonRoute, Policy: hp.policy, Pattern: pattern,
+				LogAllowed: logAllowed || anyLogAllowed(hps[i+1:], r.Actor),
+			}
 		case auditMatch == "":
 			auditMatch, auditPattern = hp.policy, pattern
 		}
@@ -117,13 +126,25 @@ func (s *Snapshot) Decide(r Request) Decision {
 	case !enforcing && !auditing:
 		return Decision{Allowed: true, Reason: ReasonUnclaimed}
 	case !enforcing && auditMatch != "":
-		return Decision{Allowed: true, Reason: ReasonRoute, Policy: auditMatch, Pattern: auditPattern}
+		return Decision{Allowed: true, Reason: ReasonRoute, Policy: auditMatch, Pattern: auditPattern, LogAllowed: logAllowed}
 	}
 	reason := ReasonNoRoute
 	if pathErr != nil {
 		reason = ReasonPath
 	}
-	return Decision{Allowed: !enforcing, Audited: !enforcing, Reason: reason, Policy: firstClaim}
+	return Decision{Allowed: !enforcing, Audited: !enforcing, Reason: reason, Policy: firstClaim, LogAllowed: logAllowed}
+}
+
+// anyLogAllowed reports whether a policy in hps that selects a has
+// LogAllowed. Decide calls it for the policies after the one that allowed a
+// request, which the loop did not reach.
+func anyLogAllowed(hps []*hostPolicy, a identity.Actor) bool {
+	for _, hp := range hps {
+		if hp.logAllowed && hp.selector.matches(a) {
+			return true
+		}
+	}
+	return false
 }
 
 // normalizeAuthority returns the lowercase host part of authority, without a

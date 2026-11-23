@@ -77,11 +77,18 @@ spec:
   roll out before you enforce. An `Enforce` policy on the same host always
   takes precedence.
 - **Paths** are templates: literal segments, `*` for one segment, `**` for one
-  or more trailing segments. The query string is not matched.
+  or more trailing segments. A template ending in `/` matches that one
+  trailing slash, as in a registry's `GET /v2/`; `*` and `**` never match the
+  empty segment it leaves, so `/**` does not match `/v2/`. The query string is
+  not matched.
+- **`logAllowed: true`** logs the allowed requests of the actors and hosts the
+  policy selects at `INFO`, with the same fields as a denial, so you have a
+  record of what each actor fetched without running at `DEBUG`.
 
 Requests whose path an upstream could read differently from ate-gress are
 denied on claimed hosts instead of being normalized. That covers encoded
-`/`, `\` or `.`, dot segments, empty segments, and non-ASCII. See
+`/`, `\` or `.`, dot segments, empty segments other than one trailing
+`/`, and non-ASCII. See
 [the threat model](docs/threat-model.md).
 
 [`examples/github-single-org.yaml`](examples/github-single-org.yaml) is a
@@ -98,7 +105,7 @@ by path; `POST /graphql` is the main case.
 | Ports | `9443` ext_proc (gRPC, mTLS), `8080` metrics, `8081` `/healthz` `/readyz` |
 | Readiness | Not ready until the first policy snapshot is built from a synced cache |
 | Metrics | `ategress_decisions_total{decision,reason}`, `ategress_decision_duration_seconds`, `ategress_snapshot_generation`, `ategress_policies{state}` |
-| Logs | JSON. Denials and audits at `INFO`, every decision at `DEBUG`. Header values are never logged, because they may hold an injected credential |
+| Logs | JSON. Denials, audits, and the allowed requests of `logAllowed` policies at `INFO`; every decision at `DEBUG`. Header values are never logged, because they may hold an injected credential |
 | Shutdown | On SIGTERM it goes NOT_SERVING, serves for `--drain-delay` while the gateway's DNS moves on, then drains streams |
 | Scaling | Stateless; every replica serves from its own informer cache. The headless Service lets the gateway balance across replicas |
 
