@@ -141,7 +141,7 @@ by path; `POST /graphql` is the main case.
 | Metrics | Prometheus, on `/metrics`; listed under [Metrics](#metrics) |
 | Logs | JSON. Denials, audits, and the allowed requests of `logAllowed` policies at `INFO`; every decision at `DEBUG`. Header values are never logged, because they may hold an injected credential. At `INFO`, denials and audits are rate-limited for each actor, reason and policy: `--deny-log-burst` lines (default 10), then `--deny-log-rate` lines a second (default 1; `0` disables the limit). The next line logged carries the number dropped as `suppressed`, and `ategress_decision_logs_suppressed_total` counts them. `logAllowed` records are never dropped, and `ategress_decisions_total` counts every decision |
 | Shutdown | On SIGTERM it goes NOT_SERVING, serves for `--drain-delay` while the gateway's DNS moves on, then drains streams |
-| Scaling | Stateless; every replica serves from its own informer cache. The headless Service lets the gateway balance across replicas |
+| Scaling | Stateless; every replica serves from its own informer cache. The headless Service lets the gateway balance across replicas. Replicas are for availability: one decides tens of thousands of requests a second ([sizing](docs/sizing.md)) |
 | Runbook | [docs/runbook.md](docs/runbook.md): every alert, reading a denial, rolling out a policy, break glass |
 
 ### Metrics
@@ -217,7 +217,8 @@ each replica with a Prometheus Operator PodMonitor, `prometheusRule.enabled`
 adds the alerts, and `grafanaDashboard.enabled` a dashboard for Grafana's
 sidecar. [docs/runbook.md](docs/runbook.md) says what to do for each alert,
 how to read a denial, and how to take ate-gress out of the gateway's path in
-an emergency.
+an emergency. [docs/sizing.md](docs/sizing.md) has measured throughput,
+latency, CPU and memory, and what to request.
 
 ### Per-policy decisions
 
@@ -267,6 +268,7 @@ make test         # unit, race, and envtest controller tests
 make fuzz         # each fuzz target for FUZZTIME (default 10s)
 make bench        # request-path benchmarks
 make test-envoy   # behind a real Envoy configured like Substrate's gateway (Docker)
+make load-test    # one replica's throughput, latency, CPU and memory (docs/sizing.md)
 make lint         # includes promtool tests of the chart's alerts (Docker)
 make validate-chart   # the chart, every option on, against the API and Prometheus Operator schemas (Docker, network)
 make lint-workflows   # zizmor audit of the GitHub workflows (Docker)

@@ -39,6 +39,13 @@ fuzz: ## Run each fuzz target for FUZZTIME.
 bench: ## Benchmarks for the request path.
 	go test -run='^$$' -bench=. -benchmem ./internal/pathmatch ./internal/identity ./internal/policy ./internal/loglimit ./internal/extproc
 
+# LOAD_POLICIES, LOAD_RATES, LOAD_DURATION, LOAD_GOMAXPROCS, LOAD_CONNS and
+# LOAD_OUT tune it; test/load/load_test.go describes them.
+.PHONY: load-test
+load-test: ## Measure one replica's throughput, latency, CPU and memory (minutes; docs/sizing.md).
+	KUBEBUILDER_ASSETS="$$($(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(CURDIR)/bin/envtest -p path)" \
+		go test -count=1 -tags=load -run=TestLoad -v -timeout=60m ./test/load
+
 ENVOY_IMAGE ?= envoyproxy/envoy:v1.39.5
 
 .PHONY: test-envoy
