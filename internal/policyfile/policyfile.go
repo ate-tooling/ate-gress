@@ -4,14 +4,16 @@
 //
 // It is the one place ategressctl resolves the API's versions: a manifest's
 // apiVersion selects the schema it is checked against and how it is decoded
-// into Policy, the type the compiler takes. Serving a second version means a
-// second entry in versions, and nothing outside this package changes.
+// into Policy, the type the compiler takes, which is the stored version's.
+// Serving another version means another entry in versions, and nothing
+// outside this package changes.
 package policyfile
 
 import (
 	"bufio"
 	"bytes"
 	"cmp"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -28,6 +30,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/ate-tooling/ate-gress/api/v1alpha1"
+	"github.com/ate-tooling/ate-gress/api/v1beta1"
 )
 
 // Policy is the type policy.Compile takes, and Host, Route and Method are the
@@ -50,13 +53,57 @@ const (
 
 // versions maps each API version this package accepts to its decoder. Every
 // version must also be in the CustomResourceDefinition, which supplies its
-// schema.
+// schema, and TestVersions fails when the two disagree.
+//
+// A decoder reads the manifest into its own version's type, strictly, so that
+// a field that version lacks is reported, and then converts the result to
+// Policy the way the API server would.
 var versions = map[string]func(data []byte) (Policy, []error, error){
 	v1alpha1.GroupVersion.Version: func(data []byte) (Policy, []error, error) {
 		var p v1alpha1.EgressRoutePolicy
 		strict, err := kjson.UnmarshalStrict(data, &p)
 		return p, strict, err
 	},
+	v1beta1.GroupVersion.Version: func(data []byte) (Policy, []error, error) {
+		var p v1beta1.EgressRoutePolicy
+		strict, err := kjson.UnmarshalStrict(data, &p)
+		converted, cerr := convertNone(p)
+		return converted, strict, cmp.Or(err, cerr)
+	},
+}
+
+// convertNone converts a policy of another served version to Policy as the
+// API server does under the CustomResourceDefinition's conversion strategy
+// None: the object is kept as written and only its apiVersion changes.
+//
+// That is sound only while the versions' schemas are identical, which
+// api/versions_test.go requires. Should they diverge, a field the other
+// version has and Policy lacks makes this an error rather than a field
+// silently dropped: the divergence needs a real conversion here, and a
+// conversion webhook in the cluster.
+func convertNone(in any) (Policy, error) {
+	raw, err := json.Marshal(in)
+	if err != nil {
+		return Policy{}, err
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return Policy{}, err
+	}
+	from, _ := obj["apiVersion"].(string)
+	obj["apiVersion"] = v1alpha1.GroupVersion.String()
+	if raw, err = json.Marshal(obj); err != nil {
+		return Policy{}, err
+	}
+	var out Policy
+	strict, err := kjson.UnmarshalStrict(raw, &out)
+	if err == nil && len(strict) > 0 {
+		err = errors.Join(strict...)
+	}
+	if err != nil {
+		return Policy{}, fmt.Errorf("converting %s to %s: %w", from, v1alpha1.GroupVersion, err)
+	}
+	return out, nil
 }
 
 // Document is one EgressRoutePolicy read from a file.

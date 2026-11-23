@@ -6,11 +6,13 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/kube-openapi/pkg/validation/spec"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/yaml"
@@ -173,23 +175,41 @@ hosts:
 }
 
 func TestSchema(t *testing.T) {
-	for _, tc := range admissionCases {
-		t.Run(tc.name, func(t *testing.T) {
-			set, err := Load([]string{"-"}, strings.NewReader(tc.manifest))
-			if err != nil {
-				t.Fatal(err)
-			}
-			d := set.Documents[0]
-			if valid := len(d.Invalid) == 0; valid != tc.valid {
-				t.Fatalf("valid = %v (%v), want %v\n%s", valid, d.Invalid, tc.valid, tc.manifest)
-			}
-			// Whatever the schema lets through, the compiler must accept:
-			// otherwise the tool would call valid a policy ate-gress drops.
-			if _, results := policy.Compile(set.Policies()); tc.valid && results[0].Err != nil {
-				t.Errorf("the compiler rejects a policy the schema admits: %v", results[0].Err)
-			}
-		})
+	for _, version := range servedVersions(t) {
+		for _, tc := range admissionCases {
+			t.Run(version+"/"+tc.name, func(t *testing.T) {
+				manifest := inVersion(tc.manifest, version)
+				set, err := Load([]string{"-"}, strings.NewReader(manifest))
+				if err != nil {
+					t.Fatal(err)
+				}
+				d := set.Documents[0]
+				if valid := len(d.Invalid) == 0; valid != tc.valid {
+					t.Fatalf("valid = %v (%v), want %v\n%s", valid, d.Invalid, tc.valid, manifest)
+				}
+				// Whatever the schema lets through, the compiler must accept:
+				// otherwise the tool would call valid a policy ate-gress drops.
+				if _, results := policy.Compile(set.Policies()); tc.valid && results[0].Err != nil {
+					t.Errorf("the compiler rejects a policy the schema admits: %v", results[0].Err)
+				}
+			})
+		}
 	}
+}
+
+// servedVersions returns the versions the embedded CRD serves.
+func servedVersions(t *testing.T) []string {
+	t.Helper()
+	all, err := schemas()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return slices.Sorted(maps.Keys(all))
+}
+
+// inVersion rewrites a v1alpha1 manifest to declare version instead.
+func inVersion(manifest, version string) string {
+	return strings.ReplaceAll(manifest, "apiVersion: "+Group+"/v1alpha1", "apiVersion: "+Group+"/"+version)
 }
 
 // TestSchemaAgreesWithAPIServer submits every admission case to a real API
@@ -201,17 +221,19 @@ func TestSchemaAgreesWithAPIServer(t *testing.T) {
 	if apiServer == nil {
 		t.Skip("KUBEBUILDER_ASSETS is not set; run through `make test`")
 	}
-	for _, tc := range admissionCases {
-		t.Run(tc.name, func(t *testing.T) {
-			obj := &unstructured.Unstructured{}
-			if err := yaml.Unmarshal([]byte(tc.manifest), &obj.Object); err != nil {
-				t.Fatal(err)
-			}
-			err := apiServer.Create(t.Context(), obj, client.DryRunAll, client.FieldValidation("Strict"))
-			if admitted := err == nil; admitted != tc.valid {
-				t.Fatalf("the API server admitted = %v (%v), and the case says valid = %v", admitted, err, tc.valid)
-			}
-		})
+	for _, version := range servedVersions(t) {
+		for _, tc := range admissionCases {
+			t.Run(version+"/"+tc.name, func(t *testing.T) {
+				obj := &unstructured.Unstructured{}
+				if err := yaml.Unmarshal([]byte(inVersion(tc.manifest, version)), &obj.Object); err != nil {
+					t.Fatal(err)
+				}
+				err := apiServer.Create(t.Context(), obj, client.DryRunAll, client.FieldValidation("Strict"))
+				if admitted := err == nil; admitted != tc.valid {
+					t.Fatalf("the API server admitted = %v (%v), and the case says valid = %v", admitted, err, tc.valid)
+				}
+			})
+		}
 	}
 }
 
@@ -222,26 +244,94 @@ func TestSchemaAssumptions(t *testing.T) {
 	if bytes.Contains(crd.EgressRoutePolicies, []byte("x-kubernetes-validations")) {
 		t.Error("the CRD has CEL rules, which validate does not evaluate: evaluate them, or the tool will pass policies admission rejects")
 	}
-	var defaults []string
-	for line := range strings.SplitSeq(string(crd.EgressRoutePolicies), "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "default:") {
-			defaults = append(defaults, strings.TrimSpace(line))
+	all, err := schemas()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Each served version has its own schema, so each must hold on its own.
+	for _, version := range slices.Sorted(maps.Keys(all)) {
+		var defaults []string
+		collectDefaults(all[version], "", &defaults)
+		if want := []string{"spec.enforcementMode: Enforce"}; !slices.Equal(defaults, want) {
+			t.Errorf("%s: the schema's defaults are %q, want %q: validate applies no defaults, which is sound only while a defaulted field is valid when absent", version, defaults, want)
 		}
 	}
-	if want := []string{"default: Enforce"}; !slices.Equal(defaults, want) {
-		t.Errorf("the CRD's defaults are %q, want %q: validate applies no defaults, which is sound only while a defaulted field is valid when absent", defaults, want)
+}
+
+// collectDefaults appends "field: value" for every default in s.
+func collectDefaults(s *spec.Schema, path string, out *[]string) {
+	if s == nil {
+		return
+	}
+	if s.Default != nil {
+		*out = append(*out, fmt.Sprintf("%s: %v", path, s.Default))
+	}
+	for _, name := range slices.Sorted(maps.Keys(s.Properties)) {
+		prop := s.Properties[name]
+		collectDefaults(&prop, join(path, name), out)
+	}
+	if s.Items != nil {
+		collectDefaults(s.Items.Schema, path+"[]", out)
+		for i := range s.Items.Schemas {
+			collectDefaults(&s.Items.Schemas[i], path+"[]", out)
+		}
+	}
+	if s.AdditionalProperties != nil {
+		collectDefaults(s.AdditionalProperties.Schema, path+"{}", out)
 	}
 }
 
 // TestVersions checks that every version the CRD serves can be read, and
 // that nothing is read that the CRD does not define.
 func TestVersions(t *testing.T) {
-	all, err := schemas()
-	if err != nil {
-		t.Fatal(err)
-	}
-	served := slices.Sorted(maps.Keys(all))
+	served := servedVersions(t)
 	if known := slices.Sorted(maps.Keys(versions)); !slices.Equal(served, known) {
 		t.Errorf("the CRD serves %v and policyfile reads %v: add the missing version to versions", served, known)
 	}
+}
+
+// TestConvert checks that a policy reads the same whichever served version it
+// declares, as it does from the API server, which converts by rewriting the
+// apiVersion alone.
+func TestConvert(t *testing.T) {
+	everything := admissionCases[1]
+	if everything.name != "everything set" {
+		t.Fatalf("admissionCases[1] is %q, want the case that sets every field", everything.name)
+	}
+	want := mustLoad(t, everything.manifest)
+	for _, version := range servedVersions(t) {
+		got := mustLoad(t, inVersion(everything.manifest, version))
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("%s reads as\n%+v\nwant\n%+v", version, got, want)
+		}
+	}
+}
+
+// TestConvertDiverged checks that a field the stored version lacks fails
+// conversion instead of being dropped.
+func TestConvertDiverged(t *testing.T) {
+	type diverged struct {
+		APIVersion string         `json:"apiVersion"`
+		Kind       string         `json:"kind"`
+		Spec       map[string]any `json:"spec"`
+	}
+	_, err := convertNone(diverged{
+		APIVersion: Group + "/v1beta1", Kind: Kind,
+		Spec: map[string]any{"hosts": []any{map[string]any{"host": "a.example.com"}}, "newField": true},
+	})
+	if err == nil || !strings.Contains(err.Error(), "newField") {
+		t.Errorf("convertNone = %v, want an error naming the field v1alpha1 lacks", err)
+	}
+}
+
+func mustLoad(t *testing.T, manifest string) Policy {
+	t.Helper()
+	set, err := Load([]string{"-"}, strings.NewReader(manifest))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !set.Valid() {
+		t.Fatalf("invalid: %v", set.Documents[0].Invalid)
+	}
+	return set.Documents[0].Policy
 }
