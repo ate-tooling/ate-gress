@@ -13,13 +13,89 @@ running installation does and need action or attention on upgrade.
 
 ### Added
 
+- `EgressRoutePolicy` is served as `v1beta1` as well as `v1alpha1`, with the
+  same schema. Policies are still stored as `v1alpha1`, and `v1alpha1` is not
+  deprecated; `kubectl get` prints `v1beta1`. The examples and the README
+  are written as `v1beta1`. See
+  [API versions](README.md#api-versions).
+- `ategressctl`, a separate binary that checks policy files without a
+  cluster: `test` runs a table of requests through them, `explain` says why
+  one request is decided as it is, and `lint` finds policies the API server
+  or the compiler would reject, `Audit` policies an `Enforce` policy
+  overrides, redundant paths, and claimed hosts that a Substrate
+  `EgressPolicy` passes through undecrypted. It decides with ate-gress's own
+  code and validates against the CRD's schema, for either API version.
+  Releases attach binaries for Linux and macOS, with build provenance
+  attestations.
+  [docs/ategressctl.md](docs/ategressctl.md).
+- Metrics: `ategress_policy_decisions_total{policy,decision}`, requests
+  counted against each policy, with the rule for when an `Audit` policy is
+  safe to switch to `Enforce`; `ategress_decision_logs_suppressed_total`;
+  `ategress_snapshot_last_build_timestamp_seconds` and
+  `ategress_snapshot_policies_hash`, to see replicas serving different
+  policies; `ategress_tls_certificate_expiry_timestamp_seconds`,
+  `ategress_tls_reload_failures_total{file}` and
+  `ategress_tls_handshake_failures_total{reason}`;
+  `ategress_active_streams`; and `ategress_build_info{version,goversion}`.
+  [Metrics](README.md#metrics).
+- The deny reason `invalid_policy`, for a request to a host where every
+  `Enforce` policy claiming it for the actor was rejected; see Fixed.
 - Example policies for PyPI, the npm registry, `ghcr.io`, Amazon S3 and the
-  Claude API, each with a test, and an index of them in
-  [examples/README.md](examples/README.md).
+  Claude API, each with a test and an `ategressctl` test file, and an index
+  of them in [examples/README.md](examples/README.md).
 - This changelog, [CONTRIBUTING.md](CONTRIBUTING.md),
   [docs/compatibility.md](docs/compatibility.md), and a proposed design for
   letting atespace owners write their own policies,
   [docs/adr/0001-policy-delegation.md](docs/adr/0001-policy-delegation.md).
+- CI runs the Envoy test on the newest stable Envoy and on Envoy's `dev`
+  build, fuzzes the targets a pull request can affect and every target
+  nightly with a saved corpus, tests a chart upgrade and rollback on kind,
+  and runs the end-to-end test against a real Substrate nightly.
+  [docs/ci.md](docs/ci.md).
+
+### Changed
+
+- **Operators:** the chart ships the CRD as a template, so `helm upgrade`
+  upgrades it and `helm rollback` puts the earlier one back; `helm
+  uninstall` keeps it, and the policies with it. `crds.install=false` leaves
+  the CRD to you. **Once, when upgrading from 0.1.0-rc.4 or earlier**, hand
+  the CRD to the release before `helm upgrade`, with the `kubectl label` and
+  `kubectl annotate` commands under [Upgrade](README.md#upgrade); without
+  them the upgrade stops with `invalid ownership metadata` and changes
+  nothing.
+- **Operators:** denial and audit decision logs are rate-limited, on by
+  default: each actor gets a burst of 10 lines for each reason and policy,
+  then 1 line a second (`--deny-log-burst` and `--deny-log-rate`, chart
+  values `denyLogBurst` and `denyLogRate`). The next line logged carries the
+  number dropped as `suppressed`, or `suppressed_untracked` when too many
+  keys are busy to track, and `ategress_decision_logs_suppressed_total`
+  counts them. `ategress_decisions_total` still counts every decision, and
+  the allowed requests of `logAllowed` policies, and every line at `DEBUG`,
+  are never dropped. `denyLogRate: 0` logs every denial, as before.
+- **Operators:** new metrics, listed under Added. Dashboards and alerts need
+  no change; the existing metrics are unchanged. Scrapes grow by three
+  series per policy, from `ategress_policy_decisions_total`.
+- **Operators:** `v1beta1` is served. Charts up to 0.1.0-rc.4 serve only
+  `v1alpha1`: keep manifests at `v1alpha1` while you may run, or roll back
+  to, one of them. A rollback keeps every policy, because they are stored as
+  `v1alpha1`; [Rollback](README.md#rollback) lists what to expect from
+  `kubectl` after one.
+
+### Fixed
+
+- **Operators, Security:** a rejected policy now fails closed. A policy the
+  compiler rejects (after a rollback, or under a CRD older than the binary)
+  used to be left out of the snapshot, which released every host it alone
+  claimed: requests that it denied were allowed, as `unclaimed`. That was a
+  fail-open bug. It now allows nothing and still claims its hosts for the
+  actors it selects, reading what it cannot understand as denying more: a
+  mode other than `Audit` is `Enforce`, and a selector list with a bad glob
+  selects everyone. Requests to those hosts are denied with reason
+  `invalid_policy` unless another `Enforce` policy allows them, and its
+  `Accepted` condition says what it still claims. Traffic that flowed under
+  a rejected policy stops: alert on `ategress_policies{state="rejected"} >
+  0` and on `invalid_policy`, and fix or delete the policy to lift it.
+  Rolling back to 0.1.0-rc.4 or earlier brings the old behaviour back.
 
 ## [0.1.0-rc.4] - 2026-11-23
 
