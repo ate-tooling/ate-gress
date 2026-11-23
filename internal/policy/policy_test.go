@@ -523,7 +523,7 @@ var breakages = []struct {
 	{"host with a label ending in a hyphen", func(s *v1alpha1.EgressRoutePolicySpec) {
 		s.Hosts = append(s.Hosts, v1alpha1.HostRoutes{Host: "added-.example.com"})
 	}},
-	{"misspelt mode and bad glob", func(s *v1alpha1.EgressRoutePolicySpec) {
+	{"misspelled mode and bad glob", func(s *v1alpha1.EgressRoutePolicySpec) {
 		s.EnforcementMode = "enforce"
 		s.ActorSelector.Atespaces = append(s.ActorSelector.Atespaces, "*.*")
 	}},

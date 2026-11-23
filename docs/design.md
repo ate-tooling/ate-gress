@@ -144,7 +144,7 @@ record.
     nothing, instead of some part of what was written.
   - *Mode.* `Audit` stays `Audit`, and so denies nothing. Anything else is
     `Enforce`: a mode this version does not know may be one that denies, and
-    a misspelt `Enforce` was certainly meant to.
+    a misspelled `Enforce` was certainly meant to.
   - *Selector.* A list holding a glob that does not compile selects
     everything, because the glob may have been meant to select anyone. The
     other list still narrows the selector, since an actor is selected only

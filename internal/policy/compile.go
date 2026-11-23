@@ -169,7 +169,7 @@ func compilePolicy(p *v1alpha1.EgressRoutePolicy) (map[string]*hostPolicy, error
 //   - No route is kept, not even one that compiles, so that a rejected policy
 //     allows nothing rather than some part of what was written.
 //   - A mode that is not Audit is Enforce. A mode this version does not know
-//     may deny, and a misspelt Enforce certainly was meant to.
+//     may deny, and a misspelled Enforce certainly was meant to.
 //   - A selector list holding a glob that does not compile selects everything,
 //     since the glob may have been meant to select anyone. The other list
 //     still narrows the selector: an actor is selected only when both lists
