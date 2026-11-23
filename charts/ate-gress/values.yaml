@@ -14,6 +14,9 @@ crds:
   install: true
 
 # Every replica decides requests; one at a time is elected to write status.
+# Replicas are for availability, not throughput: one replica on one core
+# decides far more requests than a gateway sends, so the chart has no
+# autoscaler. docs/sizing.md has the numbers.
 replicas: 2
 
 # Substrate's egress gateway, the only client ate-gress accepts.
@@ -63,18 +66,214 @@ resources:
   limits:
     memory: 256Mi
 
-# ate-gress is on the request path of every claimed host; give it a class that
-# is not evicted before the workloads that depend on it.
+# ate-gress is on the request path of every HTTP egress request; give it a
+# class that is not evicted or preempted before the workloads that depend on
+# it. The chart sets none because the right one is the cluster's choice:
+# system-cluster-critical is only allowed in namespaces with a matching
+# ResourceQuota on some distributions, so most installs want their own
+# PriorityClass at or above the egress gateway's.
 priorityClassName: ""
+
+imagePullSecrets: []
+# Added to the pods, besides the chart's own labels and annotations.
+podLabels: {}
+podAnnotations: {}
 
 nodeSelector: {}
 tolerations: []
 affinity: {}
+
+# Replicas are always spread across nodes, softly. zone adds the same soft
+# spread across topology.kubernetes.io/zone, so losing a zone does not take
+# every replica.
+topologySpread:
+  zone: false
+
+# required makes "one replica per node" a hard rule instead of a preference.
+# A rollout surges one pod before it removes one, so this needs at least
+# replicas + 1 schedulable nodes, or the rollout waits forever. It is merged
+# into affinity, which must not set its own podAntiAffinity then.
+podAntiAffinity:
+  required: false
 
 podDisruptionBudget:
   minAvailable: 1
 
 networkPolicy:
   enabled: true
-  # Peers, besides the gateway, allowed to scrape metrics. Empty allows any.
+  # Peers, besides the gateway, allowed to scrape metrics. Empty allows any,
+  # which is what lets Prometheus in by default. If you list peers, list
+  # Prometheus too, or the PodMonitor below has targets it cannot reach:
+  #   metricsFrom:
+  #   - namespaceSelector:
+  #       matchLabels: {kubernetes.io/metadata.name: monitoring}
+  #     podSelector:
+  #       matchLabels: {app.kubernetes.io/name: prometheus}
   metricsFrom: []
+
+metrics:
+  # The prometheus.io/scrape and prometheus.io/port pod annotations. Turn
+  # them off when the PodMonitor is on and your Prometheus also honors the
+  # annotations, or every replica is scraped twice under two job labels.
+  scrapeAnnotations: true
+
+# The resources below need the Prometheus Operator's CRDs
+# (monitoring.coreos.com/v1). docs/runbook.md says what to do for each alert.
+
+# A PodMonitor, not a ServiceMonitor: the metrics are per replica and several
+# alerts compare replicas, so the targets are the pods. The Service exists
+# for the gateway's DNS and is not part of how metrics are found.
+podMonitor:
+  enabled: false
+  # Labels your Prometheus selects PodMonitors by, such as
+  # release: kube-prometheus-stack.
+  labels: {}
+  # Empty uses Prometheus's own.
+  interval: ""
+  scrapeTimeout: ""
+
+prometheusRule:
+  enabled: false
+  # Labels your Prometheus selects PrometheusRules by.
+  labels: {}
+  # Label matchers that select ate-gress's series, as they go between the
+  # braces of a PromQL selector. Empty is the PodMonitor's job label,
+  # job="<namespace>/<release name>". Set it if you scrape another way.
+  selector: ""
+  # Each alert's runbook_url is this, plus its section.
+  runbookURL: https://github.com/ate-tooling/ate-gress/blob/main/docs/runbook.md
+  # Added to every alert, for routing.
+  additionalLabels: {}
+  alerts:
+    # No replica has a policy snapshot in effect: the gateway is denying
+    # every HTTP request. for is short because every minute of it is an
+    # outage, and long enough to ride over one missed scrape.
+    down:
+      enabled: true
+      for: 2m
+      severity: critical
+    # Fewer serving replicas than minReplicas: one more failure is an outage.
+    # for covers a rolling update, which keeps the count at or above the
+    # replica count anyway (maxUnavailable: 0), and a node drain. Set it to
+    # replicas if every replica should be up.
+    replicasLow:
+      enabled: true
+      minReplicas: 2
+      for: 5m
+      severity: warning
+    # A replica is running without a policy snapshot. It is not ready and
+    # takes no traffic; normally this lasts under a second after start.
+    noSnapshot:
+      enabled: true
+      for: 5m
+      severity: warning
+    # A replica's 99th percentile time to decide a request. A decision takes
+    # microseconds; the gateway gives the whole call 2s. 100ms is 5% of that
+    # budget and a thousand times the normal figure, so it means the replica
+    # is starved of CPU, not that it is busy: docs/sizing.md measured p99
+    # round trips of a few milliseconds at a saturated core. Per replica,
+    # because one starved replica fails its share of requests while the
+    # fleet's percentile hides it. The histogram's last bucket is 262ms:
+    # keep the threshold below it.
+    latencyHigh:
+      enabled: true
+      thresholdSeconds: 0.1
+      for: 5m
+      severity: warning
+    # More than ratio of all decisions are denials, and more than minRate of
+    # them a second. Denials are normal, so this is about a change: a policy
+    # that claims more than intended, or an actor in a loop. Every deny
+    # reason counts, including ones added after these rules, such as
+    # invalid_policy. minRate keeps a trickle of traffic, where one actor's
+    # retries are a large share, from paging. Tune both to your traffic.
+    denyRateHigh:
+      enabled: true
+      ratio: 0.25
+      minRate: 1
+      for: 10m
+      severity: warning
+    # Requests denied before a policy was consulted, with reason identity or
+    # headers: no actor identity, or a missing or repeated pseudo-header. The
+    # gateway supplies both, so a steady rate points at the gateway and
+    # ate-gress disagreeing on the extension point, for instance after a
+    # Substrate upgrade, more than at an actor.
+    gatewayContract:
+      enabled: true
+      minRate: 0.1
+      for: 5m
+      severity: warning
+    # A policy the compiler rejected is left out of the snapshot. That can
+    # only remove allows, so its actors are denied what it would have allowed.
+    policiesRejected:
+      enabled: true
+      for: 5m
+      severity: warning
+    # Replicas report different policy hashes. They disagree for a moment on
+    # every policy change; for minutes means a replica's informer has stopped
+    # following the cluster and it is deciding on old policies.
+    policiesDiverged:
+      enabled: true
+      for: 5m
+      severity: critical
+    # The serving certificate on disk expires in less than thresholdSeconds.
+    # Substrate's servicedns signer (cmd/podcertcontroller) issues 24h
+    # certificates with beginRefreshAt 30 minutes before expiry, when the
+    # kubelet starts fetching the next, so a healthy replica never reports
+    # less than about 30 minutes. 20 leaves the kubelet 10 minutes of retries
+    # before the alert, and you 20 before the gateway is refused. A
+    # threshold above 1800 fires on every rotation.
+    certificateExpiry:
+      enabled: true
+      thresholdSeconds: 1200
+      for: 1m
+      severity: critical
+    # The serving certificate cannot be read at all.
+    certificateUnreadable:
+      enabled: true
+      for: 5m
+      severity: critical
+    # Handshakes refused because the credential bundle or the client CA
+    # bundle could not be loaded. Each one is a connection the gateway lost.
+    tlsReloadFailures:
+      enabled: true
+      for: 0m
+      severity: critical
+    # Handshakes refused because the client's certificate did not verify.
+    # If the client is the gateway, egress is failing.
+    gatewayCertificateRejected:
+      enabled: true
+      for: 0m
+      severity: critical
+    # A client with a valid certificate that is not the gateway's connected.
+    # Nothing is broken; something in the cluster is calling ate-gress that
+    # should not.
+    unknownClient:
+      enabled: true
+      for: 0m
+      severity: warning
+    # Denial and audit log lines are being dropped by the rate limit for
+    # this long. Decisions are still counted; the log is no longer a
+    # complete record of them.
+    logsSuppressed:
+      enabled: true
+      for: 15m
+      severity: info
+
+# A Grafana dashboard, as a ConfigMap the Grafana sidecar loads. The JSON is
+# files/dashboards/ate-gress.json.
+grafanaDashboard:
+  enabled: false
+  # The label the sidecar watches for.
+  labels:
+    grafana_dashboard: "1"
+  # For example grafana_folder: Egress, where the sidecar is set up for it.
+  annotations: {}
+
+rbac:
+  # Adds EgressRoutePolicy to the cluster's view, edit and admin roles: all
+  # three can read, only admin can write. edit is left out because a policy
+  # is cluster-scoped and decides what every atespace's actors may reach;
+  # people who deploy workloads should not also set their egress rules.
+  # The policies are cluster-scoped, so this only reaches subjects bound to
+  # those roles with a ClusterRoleBinding.
+  aggregateClusterRoles: false

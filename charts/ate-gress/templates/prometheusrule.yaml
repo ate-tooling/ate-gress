@@ -1,0 +1,238 @@
+{{- if .Values.prometheusRule.enabled }}
+{{- $sel := include "ate-gress.metricsSelector" . }}
+{{- $alerts := .Values.prometheusRule.alerts }}
+{{- /* A replica counts as serving once it has built a snapshot: before that it is not ready and would deny everything. */}}
+{{- $serving := printf "ategress_snapshot_last_build_timestamp_seconds{%s} > 0" $sel }}
+# Alerts on what would otherwise first show as denied egress. Each one has a
+# section in docs/runbook.md, and test/rules/alerts_test.yaml exercises them
+# with promtool. spec stays the last key: hack/test-rules.sh cuts it out to
+# hand promtool a plain rule file.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "ate-gress.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ate-gress.labels" . | nindent 4 }}
+    {{- with .Values.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+  - name: ate-gress.availability
+    rules:
+    {{- with $alerts.down }}
+    {{- if .enabled }}
+    - alert: AteGressDown
+      expr: absent({{ $serving }})
+      {{- include "ate-gress.alertTail" (list $ . ) | nindent 6 }}
+      annotations:
+        summary: No ate-gress replica is serving; HTTP egress is failing closed.
+        description: >-
+          No replica reports a policy snapshot in effect. The egress gateway
+          denies every HTTP request, to claimed and unclaimed hosts alike,
+          until one does.
+        {{- include "ate-gress.runbook" (list $ "AteGressDown") | nindent 8 }}
+    {{- end }}
+    {{- end }}
+    {{- with $alerts.replicasLow }}
+    {{- if .enabled }}
+    - alert: AteGressReplicasLow
+      expr: count({{ $serving }}) < {{ .minReplicas }}
+      {{- include "ate-gress.alertTail" (list $ . ) | nindent 6 }}
+      annotations:
+        summary: Fewer than {{ .minReplicas }} ate-gress replicas are serving.
+        description: >-
+          {{ "{{ $value }}" }} replica(s) report a policy snapshot in effect.
+          Egress still works, but one more failure and it does not.
+        {{- include "ate-gress.runbook" (list $ "AteGressReplicasLow") | nindent 8 }}
+    {{- end }}
+    {{- end }}
+    {{- with $alerts.noSnapshot }}
+    {{- if .enabled }}
+    - alert: AteGressNoSnapshot
+      expr: ategress_snapshot_last_build_timestamp_seconds{ {{- $sel -}} } == 0
+      {{- include "ate-gress.alertTail" (list $ . ) | nindent 6 }}
+      annotations:
+        summary: An ate-gress replica is running without a policy snapshot.
+        description: >-
+          {{ "{{ $labels.pod }}" }} has not built a snapshot since it started,
+          so it is not ready and takes no requests. Its informer cache has
+          not synced with the API server.
+        {{- include "ate-gress.runbook" (list $ "AteGressNoSnapshot") | nindent 8 }}
+    {{- end }}
+    {{- end }}
+    {{- with $alerts.latencyHigh }}
+    {{- if .enabled }}
+    - alert: AteGressDecisionLatencyHigh
+      expr: |-
+        histogram_quantile(0.99, sum by (job, instance, pod, le) (rate(ategress_decision_duration_seconds_bucket{ {{- $sel -}} }[5m])))
+          > {{ .thresholdSeconds }}
+      {{- include "ate-gress.alertTail" (list $ . ) | nindent 6 }}
+      annotations:
+        summary: An ate-gress replica is slow to decide requests.
+        description: >-
+          The 99th percentile decision time of {{ "{{ $labels.pod }}" }} is
+          {{ "{{ $value | humanizeDuration }}" }}.
+          A decision normally takes microseconds, and the gateway denies any
+          request whose whole ext_proc call takes over 2s.
+        {{- include "ate-gress.runbook" (list $ "AteGressDecisionLatencyHigh") | nindent 8 }}
+    {{- end }}
+    {{- end }}
+  - name: ate-gress.decisions
+    rules:
+    {{- with $alerts.denyRateHigh }}
+    {{- if .enabled }}
+    - alert: AteGressDenyRateHigh
+      expr: |-
+        sum(rate(ategress_decisions_total{ {{- $sel -}} ,decision="deny"}[5m]))
+          / sum(rate(ategress_decisions_total{ {{- $sel -}} }[5m])) > {{ .ratio }}
+        and
+        sum(rate(ategress_decisions_total{ {{- $sel -}} ,decision="deny"}[5m])) > {{ .minRate }}
+      {{- include "ate-gress.alertTail" (list $ . ) | nindent 6 }}
+      annotations:
+        summary: ate-gress is denying an unusual share of requests.
+        description: >-
+          {{ "{{ $value | humanizePercentage }}" }} of decisions over the last
+          5 minutes were denials.
+        {{- include "ate-gress.runbook" (list $ "AteGressDenyRateHigh") | nindent 8 }}
+    {{- end }}
+    {{- end }}
+    {{- with $alerts.gatewayContract }}
+    {{- if .enabled }}
+    - alert: AteGressGatewayContractBroken
+      expr: |-
+        sum by (reason) (rate(ategress_decisions_total{ {{- $sel -}} ,decision="deny",reason=~"identity|headers"}[5m]))
+          > {{ .minRate }}
+      {{- include "ate-gress.alertTail" (list $ . ) | nindent 6 }}
+      annotations:
+        summary: The gateway is sending ate-gress requests it cannot attribute.
+        description: >-
+          {{ "{{ $value | humanize }}" }} requests a second are denied with
+          reason {{ "{{ $labels.reason }}" }}, before any policy is consulted.
+        {{- include "ate-gress.runbook" (list $ "AteGressGatewayContractBroken") | nindent 8 }}
+    {{- end }}
+    {{- end }}
+    {{- with $alerts.logsSuppressed }}
+    {{- if .enabled }}
+    - alert: AteGressDecisionLogsSuppressed
+      expr: sum(rate(ategress_decision_logs_suppressed_total{ {{- $sel -}} }[5m])) > 0
+      {{- include "ate-gress.alertTail" (list $ . ) | nindent 6 }}
+      annotations:
+        summary: ate-gress is dropping denial and audit log lines.
+        description: >-
+          The decision log rate limit is dropping {{ "{{ $value | humanize }}" }}
+          lines a second. Every decision is still counted in the metrics.
+        {{- include "ate-gress.runbook" (list $ "AteGressDecisionLogsSuppressed") | nindent 8 }}
+    {{- end }}
+    {{- end }}
+  - name: ate-gress.policies
+    rules:
+    {{- with $alerts.policiesRejected }}
+    {{- if .enabled }}
+    - alert: AteGressPoliciesRejected
+      expr: max(ategress_policies{ {{- $sel -}} ,state="rejected"}) > 0
+      {{- include "ate-gress.alertTail" (list $ . ) | nindent 6 }}
+      annotations:
+        summary: ate-gress rejected an EgressRoutePolicy.
+        description: >-
+          {{ "{{ $value }}" }} policies failed to compile, so none of their
+          routes are in effect. kubectl get egressroutepolicies shows which,
+          and why.
+        {{- include "ate-gress.runbook" (list $ "AteGressPoliciesRejected") | nindent 8 }}
+    {{- end }}
+    {{- end }}
+    {{- with $alerts.policiesDiverged }}
+    {{- if .enabled }}
+    - alert: AteGressPoliciesDiverged
+      # Replicas without a snapshot report a hash of 0 and take no traffic;
+      # AteGressNoSnapshot covers them.
+      expr: |-
+        max(ategress_snapshot_policies_hash{ {{- $sel -}} } and on (job, instance) {{ $serving }})
+          != min(ategress_snapshot_policies_hash{ {{- $sel -}} } and on (job, instance) {{ $serving }})
+      {{- include "ate-gress.alertTail" (list $ . ) | nindent 6 }}
+      annotations:
+        summary: ate-gress replicas are deciding on different policies.
+        description: >-
+          Replicas report different policy hashes, so the same request can be
+          allowed by one and denied by another. One of them has stopped
+          following policy changes.
+        {{- include "ate-gress.runbook" (list $ "AteGressPoliciesDiverged") | nindent 8 }}
+    {{- end }}
+    {{- end }}
+  - name: ate-gress.tls
+    rules:
+    {{- with $alerts.certificateExpiry }}
+    {{- if .enabled }}
+    - alert: AteGressCertificateExpiringSoon
+      expr: ategress_tls_certificate_expiry_timestamp_seconds{ {{- $sel -}} } - time() < {{ .thresholdSeconds | int64 }}
+      {{- include "ate-gress.alertTail" (list $ . ) | nindent 6 }}
+      annotations:
+        summary: An ate-gress serving certificate is not being rotated.
+        description: >-
+          The serving certificate of {{ "{{ $labels.pod }}" }} expires in
+          {{ "{{ $value | humanizeDuration }}" }}, and the kubelet should have
+          replaced it by now. Once it expires the gateway refuses this
+          replica.
+        {{- include "ate-gress.runbook" (list $ "AteGressCertificateExpiringSoon") | nindent 8 }}
+    {{- end }}
+    {{- end }}
+    {{- with $alerts.certificateUnreadable }}
+    {{- if .enabled }}
+    - alert: AteGressCertificateUnreadable
+      expr: |-
+        ategress_build_info{ {{- $sel -}} }
+          unless on (job, instance) ategress_tls_certificate_expiry_timestamp_seconds{ {{- $sel -}} }
+      {{- include "ate-gress.alertTail" (list $ . ) | nindent 6 }}
+      annotations:
+        summary: An ate-gress replica cannot read its serving certificate.
+        description: >-
+          {{ "{{ $labels.pod }}" }} is up but reports no certificate expiry,
+          which means the credential bundle cannot be loaded. It refuses
+          every new connection from the gateway.
+        {{- include "ate-gress.runbook" (list $ "AteGressCertificateUnreadable") | nindent 8 }}
+    {{- end }}
+    {{- end }}
+    {{- with $alerts.tlsReloadFailures }}
+    {{- if .enabled }}
+    - alert: AteGressTLSReloadFailures
+      expr: increase(ategress_tls_reload_failures_total{ {{- $sel -}} }[5m]) > 0
+      {{- include "ate-gress.alertTail" (list $ . ) | nindent 6 }}
+      annotations:
+        summary: ate-gress is refusing handshakes because it cannot load TLS material.
+        description: >-
+          {{ "{{ $labels.pod }}" }} could not load its {{ "{{ $labels.file }}" }}
+          for {{ "{{ $value | humanize }}" }} handshakes in the last 5 minutes.
+        {{- include "ate-gress.runbook" (list $ "AteGressTLSReloadFailures") | nindent 8 }}
+    {{- end }}
+    {{- end }}
+    {{- with $alerts.gatewayCertificateRejected }}
+    {{- if .enabled }}
+    - alert: AteGressGatewayCertificateRejected
+      expr: increase(ategress_tls_handshake_failures_total{ {{- $sel -}} ,reason="client_certificate"}[5m]) > 0
+      {{- include "ate-gress.alertTail" (list $ . ) | nindent 6 }}
+      annotations:
+        summary: ate-gress is refusing client certificates that do not verify.
+        description: >-
+          {{ "{{ $labels.pod }}" }} refused {{ "{{ $value | humanize }}" }}
+          handshakes in the last 5 minutes because the client certificate did
+          not verify against the client CA bundle. If the client is the
+          gateway, egress is failing.
+        {{- include "ate-gress.runbook" (list $ "AteGressGatewayCertificateRejected") | nindent 8 }}
+    {{- end }}
+    {{- end }}
+    {{- with $alerts.unknownClient }}
+    {{- if .enabled }}
+    - alert: AteGressUnknownClient
+      expr: increase(ategress_tls_handshake_failures_total{ {{- $sel -}} ,reason="client_identity"}[5m]) > 0
+      {{- include "ate-gress.alertTail" (list $ . ) | nindent 6 }}
+      annotations:
+        summary: Something other than the gateway is calling ate-gress.
+        description: >-
+          {{ "{{ $labels.pod }}" }} refused {{ "{{ $value | humanize }}" }}
+          handshakes in the last 5 minutes from a client whose certificate
+          is valid but is not the gateway's.
+        {{- include "ate-gress.runbook" (list $ "AteGressUnknownClient") | nindent 8 }}
+    {{- end }}
+    {{- end }}
+{{- end }}

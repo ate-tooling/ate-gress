@@ -1,0 +1,341 @@
+---
+# Source: ate-gress/templates/networkpolicy.yaml
+# Only Substrate's egress gateway may reach ext_proc. The mTLS check on the
+# gateway's SPIFFE ID enforces this regardless; the policy keeps everything
+# else from even completing a handshake.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ate-gress
+  namespace: ate-gress
+  labels:
+    app.kubernetes.io/name: ate-gress
+    app.kubernetes.io/instance: ate-gress
+    app.kubernetes.io/version: "dev"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: ate-gress-0.1.0
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ate-gress
+      app.kubernetes.io/instance: ate-gress
+  policyTypes: [Ingress]
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ate-system
+      podSelector:
+        matchLabels:
+          app: atenet-egress
+    ports:
+    - port: grpc
+  - ports:
+    - port: metrics
+  # The kubelet's probes are not subject to NetworkPolicy on most CNIs, but
+  # some enforce it; allow them explicitly.
+  - ports:
+    - port: probes
+
+---
+# Source: ate-gress/templates/pdb.yaml
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ate-gress
+  namespace: ate-gress
+  labels:
+    app.kubernetes.io/name: ate-gress
+    app.kubernetes.io/instance: ate-gress
+    app.kubernetes.io/version: "dev"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: ate-gress-0.1.0
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ate-gress
+      app.kubernetes.io/instance: ate-gress
+
+---
+# Source: ate-gress/templates/rbac.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ate-gress
+  namespace: ate-gress
+  labels:
+    app.kubernetes.io/name: ate-gress
+    app.kubernetes.io/instance: ate-gress
+    app.kubernetes.io/version: "dev"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: ate-gress-0.1.0
+
+---
+# Source: ate-gress/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ate-gress
+  labels:
+    app.kubernetes.io/name: ate-gress
+    app.kubernetes.io/instance: ate-gress
+    app.kubernetes.io/version: "dev"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: ate-gress-0.1.0
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - ategress.ate-tooling.github.io
+  resources:
+  - egressroutepolicies
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ategress.ate-tooling.github.io
+  resources:
+  - egressroutepolicies/status
+  verbs:
+  - get
+  - patch
+  - update
+
+
+---
+# Source: ate-gress/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ate-gress
+  labels:
+    app.kubernetes.io/name: ate-gress
+    app.kubernetes.io/instance: ate-gress
+    app.kubernetes.io/version: "dev"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: ate-gress-0.1.0
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ate-gress
+subjects:
+- kind: ServiceAccount
+  name: ate-gress
+  namespace: ate-gress
+
+---
+# Source: ate-gress/templates/rbac.yaml
+# Leader election for the status writer, in the release namespace only.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ate-gress-leader-election
+  namespace: ate-gress
+  labels:
+    app.kubernetes.io/name: ate-gress
+    app.kubernetes.io/instance: ate-gress
+    app.kubernetes.io/version: "dev"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: ate-gress-0.1.0
+rules:
+- apiGroups: [coordination.k8s.io]
+  resources: [leases]
+  verbs: [get, list, watch, create, update, patch, delete]
+- apiGroups: [""]
+  resources: [events]
+  verbs: [create, patch]
+
+---
+# Source: ate-gress/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ate-gress-leader-election
+  namespace: ate-gress
+  labels:
+    app.kubernetes.io/name: ate-gress
+    app.kubernetes.io/instance: ate-gress
+    app.kubernetes.io/version: "dev"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: ate-gress-0.1.0
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ate-gress-leader-election
+subjects:
+- kind: ServiceAccount
+  name: ate-gress
+  namespace: ate-gress
+
+---
+# Source: ate-gress/templates/service.yaml
+# Headless, so the gateway's STRICT_DNS cluster resolves every ready replica
+# and balances ext_proc streams across them. Through a ClusterIP its one
+# long-lived HTTP/2 connection would pin every request to a single pod.
+#
+# The servicedns signer names each selected pod's serving certificate
+# <name>.<namespace>.svc, which is the SNI and SAN the gateway checks.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ate-gress
+  namespace: ate-gress
+  labels:
+    app.kubernetes.io/name: ate-gress
+    app.kubernetes.io/instance: ate-gress
+    app.kubernetes.io/version: "dev"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: ate-gress-0.1.0
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: ate-gress
+    app.kubernetes.io/instance: ate-gress
+  ports:
+  - name: grpc
+    port: 9443
+    targetPort: grpc
+  - name: metrics
+    port: 8080
+    targetPort: metrics
+
+---
+# Source: ate-gress/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ate-gress
+  namespace: ate-gress
+  labels:
+    app.kubernetes.io/name: ate-gress
+    app.kubernetes.io/instance: ate-gress
+    app.kubernetes.io/version: "dev"
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: ate-gress-0.1.0
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ate-gress
+      app.kubernetes.io/instance: ate-gress
+  strategy:
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ate-gress
+        app.kubernetes.io/instance: ate-gress
+        app.kubernetes.io/version: "dev"
+        app.kubernetes.io/managed-by: Helm
+        helm.sh/chart: ate-gress-0.1.0
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+    spec:
+      serviceAccountName: ate-gress
+      # drainDelay + stopTimeout, and some slack for the manager to stop.
+      terminationGracePeriodSeconds: 40
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: ate-gress
+            app.kubernetes.io/instance: ate-gress
+      containers:
+      - name: ate-gress
+        image: "ghcr.io/ate-tooling/ate-gress:dev"
+        imagePullPolicy: IfNotPresent
+        args:
+        - --grpc-address=:9443
+        - --metrics-address=:8080
+        - --health-probe-address=:8081
+        - --credential-bundle=/run/servicedns.podcert.ate.dev/credential-bundle.pem
+        - --client-ca-file=/run/podidentity.podcert.ate.dev/trust-bundle.pem
+        - --allowed-client-id=spiffe://cluster.local/ns/ate-system/sa/atenet-egress
+        - --actor-trust-domain=substrate-actor.local
+        - --log-level=INFO
+        - --deny-log-rate=1
+        - --deny-log-burst=10
+        - --drain-delay=10s
+        - --stop-timeout=10s
+        - --leader-election-namespace=$(POD_NAMESPACE)
+        env:
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: GOMEMLIMIT
+          valueFrom:
+            resourceFieldRef:
+              resource: limits.memory
+        ports:
+        - name: grpc
+          containerPort: 9443
+        - name: metrics
+          containerPort: 8080
+        - name: probes
+          containerPort: 8081
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: probes
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: probes
+          periodSeconds: 10
+        resources:
+          limits:
+            memory: 256Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [ALL]
+        volumeMounts:
+        - name: servicedns
+          mountPath: /run/servicedns.podcert.ate.dev
+          readOnly: true
+        - name: podidentity
+          mountPath: /run/podidentity.podcert.ate.dev
+          readOnly: true
+      volumes:
+      # The serving certificate, for <name>.<namespace>.svc.
+      - name: servicedns
+        projected:
+          sources:
+          - podCertificate:
+              signerName: servicedns.podcert.ate.dev/identity
+              keyType: ECDSAP256
+              credentialBundlePath: credential-bundle.pem
+      # The CAs that sign the gateway's client certificate.
+      - name: podidentity
+        projected:
+          sources:
+          - clusterTrustBundle:
+              signerName: podidentity.podcert.ate.dev/identity
+              labelSelector:
+                matchLabels:
+                  podcert.ate.dev/canarying: live
+              path: trust-bundle.pem
