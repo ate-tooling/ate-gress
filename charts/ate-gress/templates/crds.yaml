@@ -257,4 +257,242 @@ spec:
     storage: true
     subresources:
       status: {}
+  - additionalPrinterColumns:
+    - jsonPath: .spec.enforcementMode
+      name: Mode
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Accepted")].status
+      name: Accepted
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1beta1
+    schema:
+      openAPIV3Schema:
+        description: EgressRoutePolicy restricts the HTTP routes Substrate actors
+          may reach.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              EgressRoutePolicySpec restricts the HTTP requests the selected actors may
+              send to the hosts it lists.
+
+              A policy claims each host it lists for the actors it selects. A request to a
+              host that no policy selecting the actor claims is left to Substrate's
+              EgressPolicy, which has already allowed it. A request to a claimed host is
+              allowed only if a route in some Enforce policy claiming that host matches
+              it. Policies only ever allow: a host listed with no routes denies every
+              request to it.
+            properties:
+              actorSelector:
+                description: |-
+                  ActorSelector chooses the actors the policy applies to. An empty
+                  selector selects every actor.
+                properties:
+                  atespaces:
+                    items:
+                      pattern: ^[a-z0-9*-]{1,63}$
+                      type: string
+                    maxItems: 32
+                    type: array
+                    x-kubernetes-list-type: set
+                  names:
+                    items:
+                      pattern: ^[a-z0-9*-]{1,63}$
+                      type: string
+                    maxItems: 32
+                    type: array
+                    x-kubernetes-list-type: set
+                type: object
+              enforcementMode:
+                default: Enforce
+                description: EnforcementMode is Enforce (the default) or Audit.
+                enum:
+                - Enforce
+                - Audit
+                type: string
+              hosts:
+                description: Hosts lists the hosts the policy claims and the routes
+                  allowed on each.
+                items:
+                  description: HostRoutes lists the routes allowed on one host.
+                  properties:
+                    host:
+                      description: |-
+                        Host is the exact, lowercase hostname, without a port. It is compared
+                        with the request's :authority, which the gateway has already matched to
+                        the hostname the actor's TLS SNI named.
+                      maxLength: 253
+                      pattern: ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$
+                      type: string
+                    routes:
+                      description: Routes are the requests allowed on Host. An empty
+                        list allows none.
+                      items:
+                        description: |-
+                          Route allows requests whose method is in Methods and whose path matches one
+                          of Paths.
+                        properties:
+                          caseInsensitive:
+                            description: |-
+                              CaseInsensitive matches literal segments ASCII case-insensitively, for
+                              upstreams such as GitHub whose account and repository names are.
+                            type: boolean
+                          methods:
+                            items:
+                              description: Method is an HTTP request method a route
+                                allows.
+                              enum:
+                              - GET
+                              - HEAD
+                              - POST
+                              - PUT
+                              - PATCH
+                              - DELETE
+                              - OPTIONS
+                              type: string
+                            minItems: 1
+                            type: array
+                            x-kubernetes-list-type: set
+                          paths:
+                            description: |-
+                              Paths are path templates. Each segment is a literal, "*" (exactly one
+                              segment), or "**" (one or more segments, last only). A template may end
+                              in "/" to match that one trailing slash: "/v2/" matches "/v2/" only,
+                              and "*" and "**" never match the empty segment it leaves. The query
+                              string is not matched. Literals may not contain "%".
+
+                              The pattern below is the whole template grammar, as an OpenAPI pattern
+                              rather than CEL so that it costs nothing against the CEL budget: "/";
+                              or segments that are each "*" or a literal, optionally followed by one
+                              trailing "/"; or such segments followed by a last "**". A literal is
+                              pchar without "*" or "%", and is not "." or "..": it is either three or
+                              more dots, or has a non-dot character.
+                            items:
+                              maxLength: 1024
+                              pattern: ^(/|(/([.]*[A-Za-z0-9_~!$&'()+,;=:@-][A-Za-z0-9_~!$&'()+,;=:@.-]*|[.][.][.]+|[*]))+/?|(/([.]*[A-Za-z0-9_~!$&'()+,;=:@-][A-Za-z0-9_~!$&'()+,;=:@.-]*|[.][.][.]+|[*]))*/[*][*])$
+                              type: string
+                            maxItems: 32
+                            minItems: 1
+                            type: array
+                            x-kubernetes-list-type: set
+                        required:
+                        - methods
+                        - paths
+                        type: object
+                      maxItems: 32
+                      type: array
+                  required:
+                  - host
+                  type: object
+                maxItems: 32
+                minItems: 1
+                type: array
+                x-kubernetes-list-map-keys:
+                - host
+                x-kubernetes-list-type: map
+              logAllowed:
+                description: |-
+                  LogAllowed logs allowed requests at INFO, as denials and audits always
+                  are: every request the selected actors send to the hosts this policy
+                  lists, whichever policy's route allowed it. The record has the actor,
+                  method, authority, the path without its query, and the policy and
+                  template that matched. Without it, allowed requests are logged only at
+                  DEBUG. Header values are never logged.
+                type: boolean
+            required:
+            - hosts
+            type: object
+          status:
+            description: EgressRoutePolicyStatus is the observed state of an EgressRoutePolicy.
+            properties:
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              observedGeneration:
+                description: ObservedGeneration is the generation the status describes.
+                format: int64
+                type: integer
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: false
+    subresources:
+      status: {}
 {{- end }}

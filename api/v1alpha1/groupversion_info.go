@@ -1,5 +1,11 @@
 // Package v1alpha1 holds the EgressRoutePolicy API.
 //
+// It is the storage version and the one version ate-gress itself reads and
+// writes. Package v1beta1 has the same schema, and the API server serves each
+// object as either. It stays the storage version for as long as a rollback to
+// a chart without v1beta1 must work: the API server refuses a CRD that drops
+// a version objects were ever stored in. docs/design.md has the plan.
+//
 // +kubebuilder:object:generate=true
 // +groupName=ategress.ate-tooling.github.io
 package v1alpha1

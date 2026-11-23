@@ -150,6 +150,7 @@ type EgressRoutePolicyStatus struct {
 // EgressRoutePolicy restricts the HTTP routes Substrate actors may reach.
 //
 // +kubebuilder:object:root=true
+// +kubebuilder:storageversion
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster,shortName=erp
 // +kubebuilder:printcolumn:name="Mode",type=string,JSONPath=`.spec.enforcementMode`
