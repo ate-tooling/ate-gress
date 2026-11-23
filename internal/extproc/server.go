@@ -230,12 +230,13 @@ func header(k, v string) *corev3.HeaderValueOption {
 	}
 }
 
-// logDecision records denials and audited requests at Info, and allowed
+// logDecision records denials and audited requests at Info, as well as
+// allowed requests a policy with logAllowed claims, and other allowed
 // requests at Debug. It records no header values: the request may carry a
 // credential Substrate injected.
 func (s *Server) logDecision(ctx context.Context, pr parsedRequest, d policy.Decision) {
 	level := slog.LevelDebug
-	if !d.Allowed || d.Audited {
+	if !d.Allowed || d.Audited || d.LogAllowed {
 		level = slog.LevelInfo
 	}
 	if !s.log.Enabled(ctx, level) {

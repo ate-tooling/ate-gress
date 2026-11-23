@@ -9,8 +9,14 @@ import (
 // Template is a compiled path pattern. Patterns are absolute paths whose
 // segments are one of:
 //   - a literal, matched byte for byte (or ASCII case-insensitively);
-//   - "*", matching exactly one segment;
-//   - "**", matching one or more segments, allowed only as the last segment.
+//   - "*", matching exactly one non-empty segment;
+//   - "**", matching one or more non-empty segments, allowed only as the last
+//     segment.
+//
+// A pattern may end in "/" after a literal or "*", and then matches only
+// paths with that one trailing slash: "/v2/" matches "/v2/" and not "/v2".
+// Neither "*" nor "**" matches the empty segment a trailing slash leaves, so
+// "/**" does not match "/v2/" and "/v2/*" does not match it either.
 //
 // The pattern "/" matches only the root path. A Template is immutable and safe
 // for concurrent use.
@@ -50,6 +56,12 @@ func Compile(pattern string, caseInsensitive bool) (*Template, error) {
 	rest := pattern[1:]
 	for {
 		seg, after, more := strings.Cut(rest, "/")
+		if seg == "" && !more {
+			// A trailing slash, matched literally. The segment before it is
+			// a literal or "*": a "**" with a segment after it was refused.
+			t.segs = append(t.segs, segment{kind: literal})
+			return t, nil
+		}
 		s, err := compileSegment(seg)
 		if err != nil {
 			return nil, fmt.Errorf("pattern %q: %w", pattern, err)
@@ -103,11 +115,16 @@ func (t *Template) Match(path string) bool {
 			return false
 		}
 		if s.kind == tail {
-			return true
+			// One or more segments, none of them the empty one a trailing
+			// slash leaves. A canonical path has no other empty segment.
+			return rest != "" && rest[len(rest)-1] != '/'
 		}
 		seg, after, more := strings.Cut(rest, "/")
 		switch {
 		case s.kind == one:
+			if seg == "" {
+				return false
+			}
 		case t.fold:
 			if !strings.EqualFold(seg, s.lit) {
 				return false

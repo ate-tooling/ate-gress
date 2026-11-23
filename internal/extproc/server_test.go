@@ -338,6 +338,73 @@ func TestDecisionLogOmitsHeaderValues(t *testing.T) {
 	}
 }
 
+// TestDecisionLogLevels checks which decisions an Info logger records: an
+// allowed request only when a policy claiming it has logAllowed.
+func TestDecisionLogLevels(t *testing.T) {
+	snap, results := policy.Compile([]v1alpha1.EgressRoutePolicy{
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "github"},
+			Spec: v1alpha1.EgressRoutePolicySpec{Hosts: []v1alpha1.HostRoutes{{Host: "api.github.com", Routes: []v1alpha1.Route{{
+				Methods: []v1alpha1.Method{"GET"}, Paths: []string{"/repos/acme/**"},
+			}}}}},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "registry"},
+			Spec: v1alpha1.EgressRoutePolicySpec{LogAllowed: true, Hosts: []v1alpha1.HostRoutes{{Host: "registry-1.docker.io", Routes: []v1alpha1.Route{{
+				Methods: []v1alpha1.Method{"GET", "HEAD"}, Paths: []string{"/v2/", "/**"},
+			}}}}},
+		},
+	})
+	for _, r := range results {
+		if r.Err != nil {
+			t.Fatal(r.Err)
+		}
+	}
+	store := &policy.Store{}
+	store.Swap(snap)
+	parser, err := identity.NewParser(identity.DefaultTrustDomain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	s := NewServer(store, parser, slog.New(slog.NewJSONHandler(&logs, nil)), NewMetrics(prometheus.NewRegistry()))
+
+	tests := []struct {
+		name, authority, path string
+		logged                []string // fragments of the record; nil for no record
+	}{
+		{name: "allowed, no logAllowed", authority: "api.github.com", path: "/repos/acme/widget"},
+		{name: "unclaimed", authority: "pypi.org", path: "/simple/requests"},
+		{name: "denied", authority: "api.github.com", path: "/repos/evil/widget",
+			logged: []string{`"decision":"deny"`, `"policy":"github"`}},
+		{name: "allowed, logAllowed", authority: "registry-1.docker.io", path: "/v2/?scope=x",
+			logged: []string{`"decision":"allow"`, `"reason":"route"`, `"actor":"research/agent-1"`, `"method":"GET"`,
+				`"authority":"registry-1.docker.io"`, `"path":"/v2/"`, `"policy":"registry"`, `"pattern":"/v2/"`}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logs.Reset()
+			req := headersRequest(actorID, ":method", "GET", ":authority", tt.authority, ":path", tt.path)
+			s.requestHeaders(t.Context(), req, req.GetRequestHeaders())
+			got := logs.String()
+			if tt.logged == nil {
+				if got != "" {
+					t.Errorf("logged at Info, want nothing:\n%s", got)
+				}
+				return
+			}
+			for _, want := range tt.logged {
+				if !strings.Contains(got, want) {
+					t.Errorf("decision log lacks %s:\n%s", want, got)
+				}
+			}
+			if strings.Contains(got, "scope=x") {
+				t.Errorf("decision log contains the query:\n%s", got)
+			}
+		})
+	}
+}
+
 func TestMetrics(t *testing.T) {
 	h := newHarness(t)
 	h.install(t)

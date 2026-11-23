@@ -66,6 +66,11 @@ type Decision struct {
 	Policy string
 	// Pattern is the path template that allowed the request.
 	Pattern string
+	// LogAllowed is set on an allowed, unaudited request when a policy that
+	// claims its host for its actor has LogAllowed, so the request is logged
+	// as a denial would be. It is never set on a denied or audited request,
+	// which are logged regardless.
+	LogAllowed bool
 }
 
 // Decide applies s to r. It is safe for concurrent use and, for a request
@@ -84,7 +89,8 @@ func (s *Snapshot) Decide(r Request) Decision {
 		firstClaim               string
 		auditMatch, auditPattern string
 	)
-	for _, hp := range s.hosts[host] {
+	hps := s.hosts[host]
+	for _, hp := range hps {
 		if !hp.selector.matches(r.Actor) {
 			continue
 		}
@@ -107,7 +113,10 @@ func (s *Snapshot) Decide(r Request) Decision {
 		switch {
 		case !matched:
 		case hp.mode == modeEnforce:
-			return Decision{Allowed: true, Reason: ReasonRoute, Policy: hp.policy, Pattern: pattern}
+			return Decision{
+				Allowed: true, Reason: ReasonRoute, Policy: hp.policy, Pattern: pattern,
+				LogAllowed: s.logAllowed(host, hps, r.Actor),
+			}
 		case auditMatch == "":
 			auditMatch, auditPattern = hp.policy, pattern
 		}
@@ -117,13 +126,28 @@ func (s *Snapshot) Decide(r Request) Decision {
 	case !enforcing && !auditing:
 		return Decision{Allowed: true, Reason: ReasonUnclaimed}
 	case !enforcing && auditMatch != "":
-		return Decision{Allowed: true, Reason: ReasonRoute, Policy: auditMatch, Pattern: auditPattern}
+		return Decision{Allowed: true, Reason: ReasonRoute, Policy: auditMatch, Pattern: auditPattern, LogAllowed: s.logAllowed(host, hps, r.Actor)}
 	}
 	reason := ReasonNoRoute
 	if pathErr != nil {
 		reason = ReasonPath
 	}
 	return Decision{Allowed: !enforcing, Audited: !enforcing, Reason: reason, Policy: firstClaim}
+}
+
+// logAllowed reports whether a policy in hps, the policies claiming host,
+// selects a and has LogAllowed. Decide calls it only for an allowed request,
+// and the scan is skipped for a host no policy with LogAllowed claims.
+func (s *Snapshot) logAllowed(host string, hps []*hostPolicy, a identity.Actor) bool {
+	if !s.logHosts[host] {
+		return false
+	}
+	for _, hp := range hps {
+		if hp.logAllowed && hp.selector.matches(a) {
+			return true
+		}
+	}
+	return false
 }
 
 // normalizeAuthority returns the lowercase host part of authority, without a

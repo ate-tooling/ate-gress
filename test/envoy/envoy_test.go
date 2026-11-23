@@ -51,7 +51,7 @@ func policies() []v1alpha1.EgressRoutePolicy {
 			Spec: v1alpha1.EgressRoutePolicySpec{
 				ActorSelector: v1alpha1.ActorSelector{Atespaces: []string{"research"}},
 				Hosts: []v1alpha1.HostRoutes{{Host: "api.github.com", Routes: []v1alpha1.Route{{
-					Methods: []v1alpha1.Method{"GET"}, Paths: []string{"/repos/acme/*", "/repos/acme/*/**"}, CaseInsensitive: true,
+					Methods: []v1alpha1.Method{"GET"}, Paths: []string{"/repos/acme/*", "/repos/acme/*/**", "/repos/acme/"}, CaseInsensitive: true,
 				}}}},
 			},
 		},
@@ -130,6 +130,9 @@ func TestEnvoy(t *testing.T) {
 		{name: "graphql", actor: research, method: "POST", host: "api.github.com", path: "/graphql", wantStatus: 403, wantReason: "no_route"},
 		{name: "write", actor: research, method: "DELETE", host: "api.github.com", path: "/repos/acme/widget", wantStatus: 403, wantReason: "no_route"},
 		{name: "encoded traversal", actor: research, method: "GET", host: "api.github.com", path: "/repos/acme/x/..%2f..%2fother", wantStatus: 403, wantReason: "path"},
+		{name: "trailing slash a template spells", actor: research, method: "GET", host: "api.github.com", path: "/repos/acme/", wantStatus: 200},
+		{name: "trailing slash ** does not match", actor: research, method: "GET", host: "api.github.com", path: "/repos/acme/widget/pulls/", wantStatus: 403, wantReason: "no_route"},
+		{name: "double trailing slash", actor: research, method: "GET", host: "api.github.com", path: "/repos/acme//", wantStatus: 403, wantReason: "path"},
 		{name: "dot-dot", actor: research, method: "GET", host: "api.github.com", path: "/repos/acme/x/../../other/y", wantStatus: 403, wantReason: "path"},
 		{name: "authority with port", actor: research, method: "GET", host: "api.github.com:443", path: "/repos/other/widget", wantStatus: 403, wantReason: "no_route"},
 		{name: "locked-out atespace", actor: billing, method: "GET", host: "api.github.com", path: "/repos/acme/widget", wantStatus: 403, wantReason: "no_route"},

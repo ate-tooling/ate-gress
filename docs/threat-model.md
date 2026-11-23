@@ -17,7 +17,8 @@
 
 | Threat | Mitigation | Tested by |
 |---|---|---|
-| Path tricks that the upstream normalizes but a matcher would not: `..`, `.`, `//`, `%2F`, `%2E`, `%5C`, `%252F`, `\`, non-ASCII | `pathmatch.Canonicalize` refuses them on claimed hosts and never repairs them. Accepted paths decode, once or twice, to the same segments and are unchanged by `path.Clean` | `TestCanonicalize`, `FuzzCanonicalize`, `test/envoy`, `hack/e2e-kind.sh` |
+| Path tricks that the upstream normalizes but a matcher would not: `..`, `.`, `//`, `%2F`, `%2E`, `%5C`, `%252F`, `\`, non-ASCII | `pathmatch.Canonicalize` refuses them on claimed hosts and never repairs them. Accepted paths decode, once or twice, to the same segments and are unchanged by `path.Clean`, apart from one trailing slash | `TestCanonicalize`, `FuzzCanonicalize`, `test/envoy`, `hack/e2e-kind.sh` |
+| An upstream reading `/v2/` as `/v2` | One trailing slash is accepted, and matched only by a template that spells it; `*` and `**` never match the empty segment, so at worst the upstream serves the resource the template named | `TestMatch`, `FuzzMatch`, `TestDecide`, `FuzzDecide` |
 | Org prefix confusion (`acme` vs `acme-evil`), case (`ACME`) | Segment-exact matching; ASCII-only case folding where enabled | `TestMatch`, `TestDecide` |
 | Query-string smuggling (`/user?x=/repos/acme/`) | The query is cut before matching | `TestCanonicalize`, `TestDecide` |
 | Spelling a claimed host differently: case, port, trailing dot, userinfo, empty labels | Authority normalized; anything that is not a hostname or IP literal is denied | `TestDecide`, `FuzzDecide` |
@@ -28,7 +29,7 @@
 | ate-gress down or slow, to fail open | The filter's `failure_mode_allow: false`; ate-gress not ready before its first snapshot | `test/envoy` "fails closed", `TestProcessNotReady` |
 | A malformed policy widening access | Schema validation at admission; the compiler re-validates and excludes failures, which can only remove allows | `TestSchemaRejects`, `TestCompileRejects`, `FuzzSchemaAgreesWithCompiler` |
 | An Audit policy widening an Enforce policy | Audit routes never allow on a host an Enforce policy claims | `TestDecideEnforceOutranksAudit` |
-| Credential leakage via logs | No header values logged; the path is logged without its query | `TestDecisionLogOmitsHeaderValues` |
+| Credential leakage via logs | No header values logged, including for `logAllowed`; the path is logged without its query | `TestDecisionLogOmitsHeaderValues`, `TestDecisionLogLevels` |
 
 ## Residual risk
 
