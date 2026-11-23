@@ -134,11 +134,11 @@ func (s *Server) decide(req *extprocv3.ProcessingRequest, h *extprocv3.HttpHeade
 		return pr, policy.Decision{Reason: policy.ReasonIdentity}
 	}
 	pr.Actor = actor
-	snap := s.store.Load()
-	if snap == nil {
+	live := s.store.Live()
+	if live == nil {
 		return pr, policy.Decision{Reason: policy.ReasonNotReady}
 	}
-	return pr, snap.Decide(pr.Request)
+	return pr, live.Decide(pr.Request)
 }
 
 // pseudoHeaders returns :method, :authority, and :path, and x-request-id if

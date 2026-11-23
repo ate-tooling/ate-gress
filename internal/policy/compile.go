@@ -21,6 +21,9 @@ type Snapshot struct {
 	// logHosts holds the hosts claimed by at least one policy with
 	// LogAllowed, so Decide can skip looking for one everywhere else.
 	logHosts map[string]bool
+	// policies names the compiled policies, sorted. A hostPolicy's index
+	// points into it, and so do the tallies a Store keeps beside the snapshot.
+	policies []string
 }
 
 type mode uint8
@@ -31,7 +34,9 @@ const (
 )
 
 type hostPolicy struct {
-	policy     string
+	policy string
+	// index is the policy's place in Snapshot.policies.
+	index      int
 	mode       mode
 	logAllowed bool
 	selector   selector
@@ -85,6 +90,7 @@ func Compile(policies []v1alpha1.EgressRoutePolicy) (*Snapshot, []Result) {
 			results[i].Err = err
 			continue
 		}
+		s.policies = append(s.policies, p.Name)
 		for host, hp := range hps {
 			s.hosts[host] = append(s.hosts[host], hp)
 			if hp.logAllowed {
@@ -92,8 +98,13 @@ func Compile(policies []v1alpha1.EgressRoutePolicy) (*Snapshot, []Result) {
 			}
 		}
 	}
+	slices.Sort(s.policies)
+	s.policies = slices.Compact(s.policies)
 	for _, hps := range s.hosts {
 		slices.SortFunc(hps, func(a, b *hostPolicy) int { return strings.Compare(a.policy, b.policy) })
+		for _, hp := range hps {
+			hp.index, _ = slices.BinarySearch(s.policies, hp.policy)
+		}
 	}
 	return s, results
 }

@@ -75,7 +75,8 @@ spec:
 - **`enforcementMode: Audit`** allows the request and records the would-be
   denial (log and `ategress_decisions_total{decision="audit"}`), so you can
   roll out before you enforce. An `Enforce` policy on the same host always
-  takes precedence.
+  takes precedence. [Per-policy decisions](#per-policy-decisions) says when
+  an `Audit` policy is safe to switch.
 - **Paths** are templates: literal segments, `*` for one segment, `**` for one
   or more trailing segments. A template ending in `/` matches that one
   trailing slash, as in a registry's `GET /v2/`; `*` and `**` never match the
@@ -110,10 +111,70 @@ by path; `POST /graphql` is the main case.
 |---|---|
 | Ports | `9443` ext_proc (gRPC, mTLS), `8080` metrics, `8081` `/healthz` `/readyz` |
 | Readiness | Not ready until the first policy snapshot is built from a synced cache |
-| Metrics | `ategress_decisions_total{decision,reason}`, `ategress_decision_duration_seconds`, `ategress_snapshot_generation`, `ategress_policies{state}` |
+| Metrics | Prometheus, on `/metrics`; listed under [Metrics](#metrics) |
 | Logs | JSON. Denials, audits, and the allowed requests of `logAllowed` policies at `INFO`; every decision at `DEBUG`. Header values are never logged, because they may hold an injected credential |
 | Shutdown | On SIGTERM it goes NOT_SERVING, serves for `--drain-delay` while the gateway's DNS moves on, then drains streams |
 | Scaling | Stateless; every replica serves from its own informer cache. The headless Service lets the gateway balance across replicas |
+
+### Metrics
+
+Requests:
+
+- `ategress_decisions_total{decision,reason}`: requests decided, by outcome
+  (`allow`, `deny`, `audit`) and reason.
+- `ategress_decision_duration_seconds`: time to decide a request.
+- `ategress_policy_decisions_total{policy,decision}`: requests counted against
+  each policy, described [below](#per-policy-decisions).
+
+Policies:
+
+- `ategress_snapshot_generation`: snapshots built since the process started.
+- `ategress_policies{state}`: policies in the snapshot in effect, `accepted`
+  or `rejected`.
+
+No metric carries an actor, a host, a path or a header value; those are in
+the decision log.
+
+### Per-policy decisions
+
+`ategress_policy_decisions_total{policy,decision}` counts requests to claimed
+hosts against the policies involved. It is the only metric with a policy
+label. Every policy in the snapshot in effect has all three series, from
+zero.
+
+- `allow`: the policy's route allowed the request.
+- `deny`: the request was denied, and this is an `Enforce` policy that
+  claimed its host for its actor. A denial means no such policy had a route
+  for the request, so each of them counts it. This is not the `policy` field
+  of the decision log, which names only the first policy by name that claimed
+  the host, and that one may be an `Audit` policy.
+- `audit`: the request was allowed, and it would have been denied had this
+  `Audit` policy, alone, been in `Enforce`. That is every request to a host
+  the policy claims for the actor that it has no route for, unless an
+  `Enforce` policy claims the host as well, because then switching this one
+  can only allow more.
+
+One request can count against several policies, so the series do not add up
+to `ategress_decisions_total`. In particular, a request that one `Audit`
+policy allows and another has no route for is an `allow` for the first and an
+`audit` for the second, while `ategress_decisions_total` and the decision log
+record a plain `allow`.
+
+An `Audit` policy is safe to switch to `Enforce` when its `audit` series has
+stopped growing on every replica over a period that covers the traffic you
+expect:
+
+```promql
+sum by (policy) (increase(ategress_policy_decisions_total{decision="audit"}[7d])) == 0
+```
+
+Switching several policies at once is safe when that holds for each of them.
+
+The counts are per replica and start again from zero when the replica
+restarts. They follow the policy's name: a policy that is edited, or switched
+between `Audit` and `Enforce`, keeps its counts. A policy that is deleted or
+rejected loses its series at the next snapshot, and starts from zero if it
+comes back.
 
 ## Development
 

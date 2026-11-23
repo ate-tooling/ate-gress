@@ -155,6 +155,9 @@ func run(ctx context.Context, o options, log *slog.Logger) error {
 	}); err != nil {
 		return err
 	}
+	if err := ctrlmetrics.Registry.Register(extproc.NewPolicyCollector(store)); err != nil {
+		return err
+	}
 	if err := mgr.Add(&controller.SnapshotBuilder{
 		Cache:           mgr.GetCache(),
 		Store:           store,

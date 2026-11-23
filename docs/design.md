@@ -67,6 +67,17 @@ thin adapters around it.
 on an M-series laptop. A whole ext_proc round trip in-process takes about
 300ns. The cost that matters is the gateway-to-ate-gress network hop.
 
+Per-policy counts do not change that. `policy.Store` keeps a tally of three
+atomic counters per policy beside the snapshot, found through an index
+compiled into it. While deciding, the snapshot notes which policies the
+decision counts against, and the store's wrapper adds to their tallies
+afterwards, so `Snapshot.Decide` stays pure and the request path does no label
+lookup. Prometheus reads the tallies of the snapshot in effect at each scrape.
+A swap carries a tally over by policy name and drops the rest, so a deleted
+policy's series end with the snapshot that held it, and a request still
+deciding on the old snapshot cannot bring them back: it counts into a tally
+nothing reads any more.
+
 ## Control plane
 
 - **Snapshot builder (every replica).** It waits for the informer cache to

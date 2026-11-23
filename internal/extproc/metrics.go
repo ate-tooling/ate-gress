@@ -8,8 +8,9 @@ import (
 	"github.com/ate-tooling/ate-gress/internal/policy"
 )
 
-// Metrics are the request-path metrics. Labels are bounded: actors, hosts,
-// and policies are deliberately absent, and belong in the decision log.
+// Metrics are the request-path metrics. Labels are bounded: actors and hosts
+// are deliberately absent, and belong in the decision log. Policies are a
+// label of one metric only, which PolicyCollector serves.
 type Metrics struct {
 	decisions *prometheus.CounterVec
 	duration  prometheus.Histogram

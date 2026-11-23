@@ -428,9 +428,14 @@ func FuzzDecide(f *testing.F) {
 	f.Add("x", "y", "GET", "registry-1.docker.io", "/v2/library/")
 	policies := githubPolicies()
 	s := mustCompile(f, policies)
+	_, live := liveOf(f, policies)
 	f.Fuzz(func(t *testing.T, atespace, name, method, authority, rawPath string) {
 		r := Request{Actor: identity.Actor{Atespace: atespace, Name: name}, Method: method, Authority: authority, Path: rawPath}
 		got := s.Decide(r)
+		// Counting a decision must not change it.
+		if counted := live.Decide(r); counted != got {
+			t.Fatalf("Decide(%+v) = %+v, but %+v when counted", r, got, counted)
+		}
 		if want := referenceDecide(policies, r); got.Allowed != want.Allowed || got.Audited != want.Audited || got.Reason != want.Reason || got.LogAllowed != want.LogAllowed {
 			t.Fatalf("Decide(%+v) = %+v, reference says %+v", r, got, want)
 		}
