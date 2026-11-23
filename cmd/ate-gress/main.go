@@ -115,9 +115,13 @@ func run(ctx context.Context, o options, log *slog.Logger) error {
 		CredentialBundle: o.credentialBundle,
 		ClientCAs:        o.clientCAs,
 		AllowedClientIDs: o.allowedClients,
+		Registerer:       ctrlmetrics.Registry,
 	})
 	if err != nil {
 		return fmt.Errorf("loading TLS material: %w", err)
+	}
+	if err := registerBuildInfo(ctrlmetrics.Registry); err != nil {
+		return err
 	}
 
 	scheme := runtime.NewScheme()

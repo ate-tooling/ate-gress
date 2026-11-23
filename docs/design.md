@@ -111,6 +111,11 @@ because the filter runs on every HTTP request.
   `--drain-delay` (longer than the gateway's DNS refresh), then calls
   `GracefulStop`. `hack/e2e-kind.sh` rolls the Deployment under actor load and
   requires zero failed requests.
+- **Warning before failure.** Metrics report what would otherwise first show
+  as denied egress: when the serving certificate on disk expires, handshakes
+  refused and why, TLS material that could not be reloaded, and a hash of the
+  policies each replica's snapshot was built from, which differs on a replica
+  whose informer has stopped following the cluster. The README lists them.
 
 ## Non-goals
 

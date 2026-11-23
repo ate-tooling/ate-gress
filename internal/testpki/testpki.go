@@ -73,6 +73,13 @@ func (ca *CA) Serving(t testing.TB, dnsNames ...string) *Leaf {
 	return ca.issue(t, &x509.Certificate{DNSNames: dnsNames, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}})
 }
 
+// ServingUntil is Serving, for a certificate that expires at notAfter instead
+// of in an hour.
+func (ca *CA) ServingUntil(t testing.TB, notAfter time.Time, dnsNames ...string) *Leaf {
+	t.Helper()
+	return ca.issue(t, &x509.Certificate{DNSNames: dnsNames, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, NotAfter: notAfter})
+}
+
 // Client issues a client certificate carrying spiffeIDs as URI SANs.
 func (ca *CA) Client(t testing.TB, spiffeIDs ...string) *Leaf {
 	t.Helper()
@@ -91,7 +98,9 @@ func (ca *CA) issue(t testing.TB, tmpl *x509.Certificate) *Leaf {
 	key := newKey(t)
 	tmpl.SerialNumber = serial(t)
 	tmpl.NotBefore = time.Now().Add(-time.Hour)
-	tmpl.NotAfter = time.Now().Add(time.Hour)
+	if tmpl.NotAfter.IsZero() {
+		tmpl.NotAfter = time.Now().Add(time.Hour)
+	}
 	tmpl.KeyUsage = x509.KeyUsageDigitalSignature
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca.Cert, &key.PublicKey, ca.key)
 	if err != nil {

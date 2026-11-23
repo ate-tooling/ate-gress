@@ -59,6 +59,8 @@ func NewServer(store *policy.Store, parser *identity.Parser, log *slog.Logger, m
 // Process handles one ext_proc stream, which Envoy opens per HTTP request.
 func (s *Server) Process(stream extprocv3.ExternalProcessor_ProcessServer) error {
 	ctx := stream.Context()
+	s.metrics.transport.streams.Inc()
+	defer s.metrics.transport.streams.Dec()
 	for {
 		req, err := stream.Recv()
 		if errors.Is(err, io.EOF) {

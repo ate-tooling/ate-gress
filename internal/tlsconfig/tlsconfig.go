@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"os"
 	"slices"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // Config names the files and identities the server needs.
@@ -28,7 +30,13 @@ type Config struct {
 	// AllowedClientIDs are the URI SANs (SPIFFE IDs) a client certificate
 	// must carry one of.
 	AllowedClientIDs []string
+	// Registerer, if set, is where Server registers the TLS metrics.
+	Registerer prometheus.Registerer
 }
+
+// ErrClientNotAllowed is the handshake error for a client whose certificate
+// chains to the client CAs but carries none of the allowed IDs.
+var ErrClientNotAllowed = errors.New("client certificate carries no allowed ID")
 
 // Server returns a TLS 1.3 server configuration that requires a client
 // certificate chaining to c.ClientCAs and carrying one of c.AllowedClientIDs.
@@ -44,16 +52,24 @@ func Server(c Config) (*tls.Config, error) {
 	if _, err := loadPool(c.ClientCAs); err != nil {
 		return nil, err
 	}
+	m := newMetrics(c)
+	if c.Registerer != nil {
+		if err := m.register(c.Registerer); err != nil {
+			return nil, fmt.Errorf("registering the TLS metrics: %w", err)
+		}
+	}
 	verify := verifyClientID(slices.Clone(c.AllowedClientIDs))
 	return &tls.Config{
 		MinVersion: tls.VersionTLS13,
 		GetConfigForClient: func(*tls.ClientHelloInfo) (*tls.Config, error) {
 			cert, err := loadKeyPair(c.CredentialBundle)
 			if err != nil {
+				m.reloadFailures.WithLabelValues(fileCredentialBundle).Inc()
 				return nil, err
 			}
 			pool, err := loadPool(c.ClientCAs)
 			if err != nil {
+				m.reloadFailures.WithLabelValues(fileClientCAs).Inc()
 				return nil, err
 			}
 			return &tls.Config{
@@ -108,6 +124,6 @@ func verifyClientID(allowed []string) func(tls.ConnectionState) error {
 				return nil
 			}
 		}
-		return fmt.Errorf("client certificate URI SANs %v include none of %v", leaf.URIs, allowed)
+		return fmt.Errorf("%w: its URI SANs %v include none of %v", ErrClientNotAllowed, leaf.URIs, allowed)
 	}
 }

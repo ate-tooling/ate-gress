@@ -12,6 +12,7 @@ import (
 // are deliberately absent, and belong in the decision log. Policies are a
 // label of one metric only, which PolicyCollector serves.
 type Metrics struct {
+	transport *transportMetrics
 	decisions *prometheus.CounterVec
 	duration  prometheus.Histogram
 }
@@ -19,6 +20,7 @@ type Metrics struct {
 // NewMetrics registers the request-path metrics with reg.
 func NewMetrics(reg prometheus.Registerer) *Metrics {
 	m := &Metrics{
+		transport: newTransportMetrics(reg),
 		decisions: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "ategress_decisions_total",
 			Help: "Requests decided, by outcome (allow, deny, audit) and reason.",
