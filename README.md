@@ -100,7 +100,9 @@ see it.
 [`examples/github-single-org.yaml`](examples/github-single-org.yaml) is a
 complete single-organization GitHub setup, covering the REST API, git
 clone/fetch, archives and raw content. It explains what cannot be filtered
-by path; `POST /graphql` is the main case.
+by path; `POST /graphql` is the main case. [`examples/`](examples/README.md)
+has more: PyPI, npm, `ghcr.io`, S3 and the Claude API, each with the limits
+of what a method-and-path policy can do for that upstream.
 
 `kubectl get egressroutepolicies` shows whether each policy is `Accepted`.
 
@@ -115,6 +117,11 @@ by path; `POST /graphql` is the main case.
 | Shutdown | On SIGTERM it goes NOT_SERVING, serves for `--drain-delay` while the gateway's DNS moves on, then drains streams |
 | Scaling | Stateless; every replica serves from its own informer cache. The headless Service lets the gateway balance across replicas |
 
+[docs/compatibility.md](docs/compatibility.md) says which Substrate and Envoy
+versions ate-gress is tested against, what an upgrade of either can break,
+and which metrics, log fields and deny reasons are stable.
+[CHANGELOG.md](CHANGELOG.md) marks the changes operators have to act on.
+
 ## Development
 
 ```sh
@@ -127,4 +134,6 @@ make lint-workflows   # zizmor audit of the GitHub workflows (Docker)
 hack/e2e-kind.sh <substrate checkout>   # against a kind cluster running Substrate
 ```
 
-The design is in [docs/design.md](docs/design.md).
+The design is in [docs/design.md](docs/design.md), and
+[CONTRIBUTING.md](CONTRIBUTING.md) says what a change has to bring with it.
+[docs/adr/](docs/adr/0001-policy-delegation.md) holds design proposals.
