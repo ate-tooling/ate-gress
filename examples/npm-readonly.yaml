@@ -1,0 +1,65 @@
+# Let every actor install unscoped packages from the public npm registry:
+# read package documents and download tarballs. No publish, no login, no
+# token management.
+#
+# READ THIS FIRST: scoped packages (@scope/name) cannot be installed through
+# this policy, or through any policy that claims registry.npmjs.org. The npm
+# CLI asks for a scoped package's document with the slash percent-encoded
+# (npm 11.20.0 was observed sending GET /@babel%2fcore), and ate-gress
+# refuses an encoded "/" on a claimed host, with reason "path", because an
+# upstream could read it either way. No template can allow it. If your
+# actors need scoped packages, do not claim this host; then only Substrate's
+# EgressPolicy governs it, by hostname.
+#
+# The actors' EgressPolicy needs an https rule for registry.npmjs.org. For
+# private packages it should inject a read-only token; the token's scope, not
+# this policy, is what keeps an actor out of other packages.
+#
+# Request shapes, checked on 2026-11-23:
+#   - https://github.com/npm/registry/blob/main/docs/REGISTRY-API.md:
+#     GET /{package} is the package document, and a version's tarball is
+#     "usually" at /{name}/-/{name}-{version}.tgz.
+#   - The registry itself: left-pad's tarball is
+#     /left-pad/-/left-pad-1.3.0.tgz, and @babel/core's is
+#     /@babel/core/-/core-8.1.3.tgz, with the slash not encoded.
+#
+# What the routes below match beyond their purpose:
+#   - /* is any single-segment path, not only package names.
+#   - /*/-/* and /*/*/-/* match by shape. The first segment is not checked to
+#     be a package name, and the file name is not checked to belong to the
+#     package.
+#   The routes are GET and HEAD only, so this is read access either way.
+#
+# Not listed, and so denied:
+#   - PUT /{package} (publish, deprecate, dist-tag by document), DELETE
+#     (unpublish), and PUT /-/user/* (login).
+#   - POST /-/npm/v1/security/advisories/bulk, which `npm install` sends to
+#     audit what it installed. Run installs with --no-audit, or set
+#     audit=false in .npmrc.
+#   - GET /{package}/{version}, GET /-/v1/search, GET /-/whoami, and the rest
+#     of /-/. The CLI resolves versions from the package document, so an
+#     install does not need them.
+#   - GET /@scope/name, the unencoded form of a scoped document. Allowing it
+#     would take /*/*, which also matches /-/whoami and /{package}/{version},
+#     and the CLI does not send it anyway.
+#
+# The scoped tarball route is kept because a lockfile records tarball URLs:
+# a client that fetches straight from them needs no package document. Whether
+# `npm ci` does so for every package was not verified here.
+---
+apiVersion: ategress.ate-tooling.github.io/v1alpha1
+kind: EgressRoutePolicy
+metadata:
+  name: npm-readonly
+spec:
+  hosts:
+  - host: registry.npmjs.org
+    routes:
+    - methods: [GET, HEAD]
+      paths:
+      # Package documents of unscoped packages: /left-pad
+      - /*
+      # Tarballs of unscoped packages: /left-pad/-/left-pad-1.3.0.tgz
+      - /*/-/*
+      # Tarballs of scoped packages: /@babel/core/-/core-8.1.3.tgz
+      - /*/*/-/*

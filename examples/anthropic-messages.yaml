@@ -1,0 +1,83 @@
+# Let actors in the agents atespace run inference on the Claude API
+# (create a message, count tokens, read the model list) and nothing else on
+# api.anthropic.com; lock every other actor out of it entirely.
+#
+# The actors' EgressPolicy needs an https rule for api.anthropic.com, and
+# should inject the API key so the actor never holds it:
+#
+#   rules:
+#   - https:
+#       hostnames: [api.anthropic.com]
+#       effects:
+#         replaceHeaders:
+#         - header: Authorization
+#           prefix: "Bearer "
+#           credentialUri: ate-secret://k8s.io/default/agents/anthropic/api-key
+#
+# Use a key scoped to one workspace. An Admin API key is a different kind of
+# key; do not inject one.
+#
+# Request shapes, checked on 2026-11-23 against
+# https://platform.claude.com/docs/en/api/overview: the API is at
+# https://api.anthropic.com; Messages is POST /v1/messages, Token Counting is
+# POST /v1/messages/count_tokens, Models is GET /v1/models, Message Batches
+# is under /v1/messages/batches, Files under /v1/files, Skills under
+# /v1/skills, and Managed Agents under /v1/agents, /v1/sessions and
+# /v1/environments. The Admin API is under /v1/organizations.
+#
+# Why the rest is denied:
+#   - /v1/files, /v1/skills and /v1/messages/batches keep state in the
+#     workspace that any holder of the same key can list and read. With one
+#     injected key shared by many actors, they are a channel between actors
+#     and a place to leave data. A batch's results are also fetched later,
+#     apart from the request that asked for them.
+#   - /v1/agents, /v1/sessions and /v1/environments start agents that run on
+#     Anthropic's infrastructure, outside Substrate.
+#   - /v1/organizations is the Admin API: members, workspaces, API keys.
+#   - /v1/oauth/token exchanges an identity token for an access token. An
+#     actor whose credential is injected has no use for it.
+#
+# What these policies cannot do. Everything that distinguishes one Messages
+# request from another is in the body, which ate-gress never sees:
+#   - The model, max_tokens and so the cost of a request.
+#   - Server tools. A request can ask for web search, web fetch or code
+#     execution, which run on Anthropic's infrastructure, and can name MCP
+#     servers for Anthropic to connect to. That network access does not pass
+#     through Substrate's gateway. Restrict it in the organization's and the
+#     workspace's settings.
+#   - References to files that already exist in the workspace.
+#   - The prompt and the response. An allowed route is an allowed
+#     conversation.
+#
+# The query string is not matched, so /v1/messages?beta=true, which SDKs send
+# for beta features, is the same route.
+---
+# Every actor: the API is claimed, and with no routes, nothing is allowed.
+apiVersion: ategress.ate-tooling.github.io/v1alpha1
+kind: EgressRoutePolicy
+metadata:
+  name: anthropic-lockdown
+spec:
+  hosts:
+  - host: api.anthropic.com
+---
+# The agents atespace: inference only.
+apiVersion: ategress.ate-tooling.github.io/v1alpha1
+kind: EgressRoutePolicy
+metadata:
+  name: anthropic-inference
+spec:
+  actorSelector:
+    atespaces: [agents]
+  hosts:
+  - host: api.anthropic.com
+    routes:
+    - methods: [POST]
+      paths:
+      - /v1/messages
+      - /v1/messages/count_tokens
+    # Model discovery, which SDKs and agent frameworks use to pick limits.
+    - methods: [GET]
+      paths:
+      - /v1/models
+      - /v1/models/*

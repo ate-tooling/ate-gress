@@ -1,0 +1,90 @@
+# Let actors in the build atespace pull container images from one ghcr.io
+# namespace, "acme", and nothing else there; lock every other actor out of
+# ghcr.io entirely. No push, no delete, no other namespace.
+#
+# The actors' EgressPolicy needs https rules for ghcr.io and
+# pkg-containers.githubusercontent.com. tls_passthrough rules would bypass
+# ate-gress. How the pull credential reaches the client is outside this
+# example; public images pull anonymously with these routes as they are.
+#
+# Request shapes, checked on 2026-11-23:
+#   - The OCI distribution spec
+#     (https://github.com/opencontainers/distribution-spec/blob/main/spec.md):
+#     GET /v2/ is the version check, with the trailing slash;
+#     GET|HEAD /v2/<name>/manifests/<tag-or-digest>;
+#     GET|HEAD /v2/<name>/blobs/<digest>; GET /v2/<name>/tags/list;
+#     GET /v2/<name>/referrers/<digest>. Pushes are POST, PATCH and PUT, and
+#     deletes are DELETE. A registry may answer any request with a redirect.
+#   - ghcr.io itself: GET /v2/ answers 401 with
+#     WWW-Authenticate: Bearer realm="https://ghcr.io/token",service="ghcr.io",
+#     so a client next sends GET /token?service=ghcr.io&scope=repository:...
+#     A blob request answers 307 to
+#     https://pkg-containers.githubusercontent.com/ghcr1/blobs/<digest>?<signature>.
+#     GitHub does not document that host or path. If it changes, pulls fail
+#     with reason no_route until the route below is updated.
+#
+# What these policies cannot do:
+#   - See the scope a token is asked for: it is in the query string, which is
+#     not matched. An actor can get a token for any repository, and with push
+#     scope, that its credential allows. What holds it to pulling acme is the
+#     /v2/ routes: a token is no use on a request ate-gress denies.
+#   - Tie a blob download to the namespace. The redirect target names only a
+#     digest. An actor is kept to acme's blobs because the signed URL is only
+#     issued by a ghcr.io blob request, which is checked; an actor handed a
+#     signed URL by someone else can fetch that blob.
+#   - Match a repository name of any depth. "**" is allowed only as the last
+#     segment, so /v2/acme/**/manifests/* cannot be written. The routes below
+#     cover acme/<image>. For acme/<group>/<image>, add the same four
+#     templates with one more "*".
+#
+# Not listed, and so denied on ghcr.io:
+#   - Every other namespace, including acme-evil and ACME: segments match
+#     whole and case-sensitively, and the spec requires lowercase names.
+#   - POST, PUT, PATCH and DELETE under /v2/: push, cross-repository blob
+#     mount, and delete.
+#   - /v2 without the trailing slash, and /v2/_catalog.
+#   - POST /token, the OAuth form some clients use with a refresh token.
+#
+# Docker Hub is laid out differently: the registry is registry-1.docker.io,
+# its token service is on another host (auth.docker.io), official images are
+# under library/, and blobs redirect to CDN hosts this example did not pin
+# down. Each of those hosts needs its own entry.
+---
+# Every actor: ghcr.io is claimed, and with no routes, nothing is allowed.
+apiVersion: ategress.ate-tooling.github.io/v1alpha1
+kind: EgressRoutePolicy
+metadata:
+  name: ghcr-lockdown
+spec:
+  hosts:
+  - host: ghcr.io
+---
+# The build atespace: pull from acme.
+apiVersion: ategress.ate-tooling.github.io/v1alpha1
+kind: EgressRoutePolicy
+metadata:
+  name: ghcr-acme-pull
+spec:
+  actorSelector:
+    atespaces: [build]
+  hosts:
+  - host: ghcr.io
+    routes:
+    # The token service. Its query, and so the scope asked for, is not
+    # matched.
+    - methods: [GET]
+      paths: [/token]
+    - methods: [GET, HEAD]
+      paths:
+      # The version check, which clients send first.
+      - /v2/
+      - /v2/acme/*/manifests/*
+      - /v2/acme/*/blobs/*
+      - /v2/acme/*/tags/list
+      - /v2/acme/*/referrers/*
+  # Where ghcr.io redirects blob downloads. Only this policy claims the host,
+  # so for other actors it is left to their EgressPolicy.
+  - host: pkg-containers.githubusercontent.com
+    routes:
+    - methods: [GET, HEAD]
+      paths: [/ghcr1/blobs/*]
