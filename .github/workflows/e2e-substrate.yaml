@@ -1,0 +1,184 @@
+# The end-to-end test against a real Substrate, every night and on demand:
+# hack/substrate-kind-up.sh brings up kind and Substrate, and hack/e2e-kind.sh
+# installs ate-gress, points the gateway at it and drives actor traffic.
+#
+# Substrate's extension point is experimental and can change under ate-gress,
+# so the test runs against the Substrate pinned in hack/substrate-pins.env and
+# against the tip of Substrate's main branch:
+#
+#   operator, pinned    the agent-substrate-operator and the release it embeds:
+#                       what most installs run
+#   ate-setup, pinned   the same release installed by Substrate's own installer
+#   ate-setup, latest   Substrate's main branch, built from source
+#
+# The last two differ only in the Substrate, so "latest red, pinned green"
+# means Substrate changed something ate-gress relies on. A failed nightly run
+# opens an issue, or adds to the open one; the next passing run closes it.
+#
+# This job builds and runs Substrate's main branch, code this repository does
+# not review. It therefore holds a read-only token and no secrets, and saves
+# no cache another workflow would restore. The job that writes the issue runs
+# nothing from either repository.
+#
+# It also runs on a pull request that changes this file or a script it runs,
+# because a workflow that only runs on a schedule cannot be tried before it
+# is merged.
+name: e2e-substrate
+
+on:
+  schedule:
+  - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      substrate-ref:
+        description: Branch, tag or commit of agent-substrate/substrate for the "latest" leg
+        default: main
+      github:
+        description: Run the api.github.com checks (the gateway's TLS MITM leg)
+        type: boolean
+        default: true
+  pull_request:
+    paths:
+    - .github/workflows/e2e-substrate.yaml
+    - hack/substrate-kind-up.sh
+    - hack/e2e-kind.sh
+    - hack/check-envoy-pin.sh
+    - hack/substrate-pins.env
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-substrate-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  e2e:
+    name: ${{ matrix.install }}, ${{ matrix.substrate }} Substrate
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ matrix.timeout }}
+    # Substrate's main branch must not block a pull request here. At night
+    # there is nothing to block, and the failure is the point.
+    continue-on-error: ${{ matrix.substrate == 'latest' && github.event_name == 'pull_request' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - install: operator
+          substrate: pinned
+          timeout: 60
+        - install: ate-setup
+          substrate: pinned
+          timeout: 60
+        # Builds every Substrate image, the gateway's Rust module included.
+        - install: ate-setup
+          substrate: latest
+          timeout: 120
+    env:
+      KIND_CLUSTER_NAME: substrate
+      SUBSTRATE_INSTALL: ${{ matrix.install }}
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - id: substrate
+      run: |
+        # shellcheck source=hack/substrate-pins.env
+        source hack/substrate-pins.env
+        if [[ "${SUBSTRATE}" == pinned ]]; then
+          echo "ref=${SUBSTRATE_COMMIT}"
+          # ate-setup installs the release's published images. The operator
+          # knows where they are by itself.
+          if [[ "${SUBSTRATE_INSTALL}" == ate-setup ]]; then
+            echo "image-repo=${SUBSTRATE_IMAGE_REPO}"
+            echo "image-tag=${SUBSTRATE_VERSION}"
+          fi
+        else
+          echo "ref=${LATEST_REF}"
+        fi >>"${GITHUB_OUTPUT}"
+      env:
+        SUBSTRATE: ${{ matrix.substrate }}
+        LATEST_REF: ${{ inputs.substrate-ref || 'main' }}
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: agent-substrate/substrate
+        ref: ${{ steps.substrate.outputs.ref }}
+        path: _substrate
+        persist-credentials: false
+    - run: |
+        {
+          echo "Substrate: \`$(git -C _substrate rev-parse HEAD)\` ($(git -C _substrate log -1 --format=%cs))"
+          echo "Installed by: ${SUBSTRATE_INSTALL}"
+        } >>"${GITHUB_STEP_SUMMARY}"
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+        # This job compiles code from Substrate's main branch. Its Go caches
+        # must not become the ones the ci and release workflows restore.
+        cache: false
+    - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
+    - name: Bring up kind and Substrate
+      run: hack/substrate-kind-up.sh _substrate
+      env:
+        SUBSTRATE_IMAGE_REPO: ${{ steps.substrate.outputs.image-repo }}
+        SUBSTRATE_IMAGE_TAG: ${{ steps.substrate.outputs.image-tag }}
+    - name: End-to-end test
+      run: hack/e2e-kind.sh _substrate
+      env:
+        # On by default: it is the only traffic through the gateway's TLS
+        # MITM leg, where the extension point is spliced in separately from
+        # the cleartext leg. The checks pass when GitHub rate-limits the
+        # runner's address, so they do not depend on GitHub's goodwill.
+        # Only a manual run can turn them off. (inputs.github is null on other
+        # events, and null == false is true in an expression.)
+        E2E_GITHUB: ${{ (github.event_name == 'workflow_dispatch' && !inputs.github) && '0' || '1' }}
+    # On the pinned Substrate a difference is a pin that was moved without
+    # the Makefile. On main it is the early warning that Substrate has moved
+    # to an Envoy that `make test-envoy` does not run against yet.
+    - name: Envoy pin
+      if: ${{ !cancelled() }}
+      run: hack/check-envoy-pin.sh _substrate
+
+  # Scheduled runs have no pull request to turn red, and GitHub mails a failed
+  # one to a single person. The issue is where a broken night shows.
+  report:
+    name: Report
+    needs: e2e
+    if: ${{ always() && github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read  # the result of each leg
+      issues: write  # open, update and close the tracking issue
+    steps:
+    - run: |
+        title="Nightly Substrate end-to-end test is failing"
+        legs="$(gh api "repos/${GH_REPO}/actions/runs/${RUN_ID}/jobs" --paginate \
+          --jq '.jobs[] | select(.name != "Report") | "- \(.name): **\(.conclusion // .status)**"')"
+        issue="$(gh issue list --state open --search "\"${title}\" in:title" --json number,title \
+          --jq "map(select(.title == \"${title}\")) | .[0].number // empty")"
+
+        case "${RESULT}" in
+        success)
+          if [[ -n "${issue}" ]]; then
+            gh issue close "${issue}" --comment "Passing again in ${RUN_URL}"$'\n\n'"${legs}"
+          fi
+          ;;
+        failure)
+          body="$(printf '%s\n\n%s\n\n%s\n' \
+            "The nightly end-to-end test against Substrate failed: ${RUN_URL}" \
+            "${legs}" \
+            "The two ate-setup legs differ only in the Substrate. If latest failed and pinned passed, Substrate's main branch changed something ate-gress relies on: read the failed leg's log against Substrate's recent commits. If the pinned legs failed too, suspect ate-gress, the scripts under hack/, or the runner. docs/ci.md has more.")"
+          if [[ -n "${issue}" ]]; then
+            gh issue comment "${issue}" --body "${body}"
+          else
+            gh issue create --title "${title}" --body "${body}"
+          fi
+          ;;
+        esac
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        RUN_ID: ${{ github.run_id }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        RESULT: ${{ needs.e2e.result }}

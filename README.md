@@ -122,9 +122,19 @@ make test         # unit, race, and envtest controller tests
 make fuzz         # each fuzz target for FUZZTIME (default 10s)
 make bench        # request-path benchmarks
 make test-envoy   # behind a real Envoy configured like Substrate's gateway (Docker)
+make test-envoy-stable test-envoy-dev   # the same, on the newest stable Envoy and on Envoy's main
 make lint
 make lint-workflows   # zizmor audit of the GitHub workflows (Docker)
-hack/e2e-kind.sh <substrate checkout>   # against a kind cluster running Substrate
+
+# End to end, on a kind cluster running Substrate:
+hack/substrate-kind-up.sh <substrate checkout>   # create the cluster and install Substrate
+hack/e2e-kind.sh <substrate checkout>            # install ate-gress and drive actor traffic
 ```
+
+CI runs the first group on every pull request. Nightly, it runs the
+end-to-end test against a pinned Substrate release and Substrate's `main`,
+the Envoy test against Envoy's `main`, and the fuzzers with a saved corpus.
+[docs/ci.md](docs/ci.md) says what runs when, and what to do when a nightly
+run fails.
 
 The design is in [docs/design.md](docs/design.md).

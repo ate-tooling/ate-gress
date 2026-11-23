@@ -28,7 +28,10 @@ tag vX.Y.Z
 
 Some properties the pipeline guarantees:
 
-- **Gated.** Nothing is published unless the tagged commit passes all of CI.
+- **Gated.** Nothing is published unless the tagged commit passes all of
+  `ci`. The nightly workflows in [ci.md](ci.md) (Substrate end to end,
+  Envoy's `main`, long fuzzing) gate nothing; check that they are green
+  before tagging.
 - **Immutable.** Image tags are never overwritten, and neither are release
   versions: `gh release create` refuses a tag that already has a release.
 - **Least privilege.** The workflow token is read-only. Each job is granted
