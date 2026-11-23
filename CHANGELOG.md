@@ -47,6 +47,14 @@ running installation does and need action or attention on upgrade.
   [docs/compatibility.md](docs/compatibility.md), and a proposed design for
   letting atespace owners write their own policies,
   [docs/adr/0001-policy-delegation.md](docs/adr/0001-policy-delegation.md).
+- Opt-in chart monitoring: a `PodMonitor`, a `PrometheusRule` with 14
+  alerts whose thresholds are chart values, a Grafana dashboard, and
+  aggregated ClusterRoles that let `view` and `edit` read policies and only
+  `admin` write them. Also zone topology spread, optional required pod
+  anti-affinity, extra pod labels and annotations, and `imagePullSecrets`.
+  [docs/runbook.md](docs/runbook.md) has a section per alert and the
+  break-glass procedure; [docs/sizing.md](docs/sizing.md) has measured
+  throughput, latency, CPU and memory, and `make load-test` reproduces them.
 - CI runs the Envoy test on the newest stable Envoy and on Envoy's `dev`
   build, fuzzes the targets a pull request can affect and every target
   nightly with a saved corpus, tests a chart upgrade and rollback on kind,
@@ -75,6 +83,9 @@ running installation does and need action or attention on upgrade.
 - **Operators:** new metrics, listed under Added. Dashboards and alerts need
   no change; the existing metrics are unchanged. Scrapes grow by three
   series per policy, from `ategress_policy_decisions_total`.
+- **Operators:** the chart has a `values.schema.json`, so a value it does
+  not know, or one of the wrong type, now fails `helm install` and `helm
+  upgrade` instead of being ignored.
 - **Operators:** `v1beta1` is served. Charts up to 0.1.0-rc.4 serve only
   `v1alpha1`: keep manifests at `v1alpha1` while you may run, or roll back
   to, one of them. A rollback keeps every policy, because they are stored as
