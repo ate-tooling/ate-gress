@@ -1,0 +1,21 @@
+testdata/test/failing.tests.yaml
+  expectations the policies do not meet
+  ok    allow  research/agent  GET https://api.example.com/v1/items
+  FAIL  allow  research/agent  POST https://api.example.com/v1/items
+        tests[0].allow[1]: got deny (reason no_route, policy api-readonly)
+        want decision allow, got deny
+  FAIL  allow  research/agent  GET https://api.example.com/v1/items/7
+        tests[0].allow[2]: got allow (reason route, policy api-readonly, template /v1/**)
+        want template /v1/*, got /v1/**
+  FAIL  deny   research/agent  GET https://files.example.com/private/a.txt
+        tests[0].deny[0]: got audit (reason no_route, policy files-audit)
+        want decision deny, got audit
+  FAIL  deny   research/agent  GET https://api.example.com/v2/items
+        tests[0].deny[1]: got deny (reason no_route, policy api-readonly)
+        want reason path, got no_route
+        want policy files-audit, got api-readonly
+  FAIL  audit  research/agent  GET https://files.example.com/public/a.txt
+        tests[0].audit[0]: got allow (reason route, policy files-audit, template /public/**)
+        want decision audit, got allow
+
+1 passed, 5 failed

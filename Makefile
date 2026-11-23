@@ -78,6 +78,10 @@ build:
 
 VERSION ?= dev
 
+.PHONY: build-ategressctl
+build-ategressctl: ## Build the policy testing CLI into bin/ategressctl.
+	CGO_ENABLED=0 go build -trimpath -ldflags="-X main.version=$(VERSION)" -o bin/ategressctl ./cmd/ategressctl
+
 .PHONY: docker-build
 docker-build:
 	docker build --build-arg VERSION=$(VERSION) -t $(IMG) .
@@ -87,6 +91,10 @@ docker-build:
 .PHONY: chart-package
 chart-package: ## Package the chart as a release would: make chart-package VERSION=0.1.0 DIGEST=sha256:...
 	hack/package-chart.sh $(VERSION) $(DIGEST) dist
+
+.PHONY: ategressctl-dist
+ategressctl-dist: ## Build the ategressctl release binaries: make ategressctl-dist VERSION=0.1.0
+	hack/build-ategressctl.sh $(VERSION) dist
 
 .PHONY: verify-release
 verify-release: ## Verify a published release's signatures and attestations: make verify-release VERSION=0.1.0

@@ -1,0 +1,127 @@
+{
+  "passed": 1,
+  "failed": 5,
+  "files": [
+    {
+      "file": "testdata/test/failing.tests.yaml",
+      "policies": [
+        "testdata/test/policies.yaml"
+      ],
+      "invalidPolicies": [],
+      "cases": [
+        {
+          "id": "tests[0].allow[0]",
+          "group": "expectations the policies do not meet",
+          "actor": "research/agent",
+          "request": "GET https://api.example.com/v1/items",
+          "want": {
+            "decision": "allow"
+          },
+          "got": {
+            "decision": "allow",
+            "reason": "route",
+            "policy": "api-readonly",
+            "template": "/v1/**"
+          },
+          "passed": true
+        },
+        {
+          "id": "tests[0].allow[1]",
+          "group": "expectations the policies do not meet",
+          "actor": "research/agent",
+          "request": "POST https://api.example.com/v1/items",
+          "want": {
+            "decision": "allow"
+          },
+          "got": {
+            "decision": "deny",
+            "reason": "no_route",
+            "policy": "api-readonly"
+          },
+          "passed": false,
+          "mismatches": [
+            "decision"
+          ]
+        },
+        {
+          "id": "tests[0].allow[2]",
+          "group": "expectations the policies do not meet",
+          "actor": "research/agent",
+          "request": "GET https://api.example.com/v1/items/7",
+          "want": {
+            "decision": "allow",
+            "template": "/v1/*"
+          },
+          "got": {
+            "decision": "allow",
+            "reason": "route",
+            "policy": "api-readonly",
+            "template": "/v1/**"
+          },
+          "passed": false,
+          "mismatches": [
+            "template"
+          ]
+        },
+        {
+          "id": "tests[0].deny[0]",
+          "group": "expectations the policies do not meet",
+          "actor": "research/agent",
+          "request": "GET https://files.example.com/private/a.txt",
+          "want": {
+            "decision": "deny"
+          },
+          "got": {
+            "decision": "audit",
+            "reason": "no_route",
+            "policy": "files-audit"
+          },
+          "passed": false,
+          "mismatches": [
+            "decision"
+          ]
+        },
+        {
+          "id": "tests[0].deny[1]",
+          "group": "expectations the policies do not meet",
+          "actor": "research/agent",
+          "request": "GET https://api.example.com/v2/items",
+          "want": {
+            "decision": "deny",
+            "reason": "path",
+            "policy": "files-audit"
+          },
+          "got": {
+            "decision": "deny",
+            "reason": "no_route",
+            "policy": "api-readonly"
+          },
+          "passed": false,
+          "mismatches": [
+            "reason",
+            "policy"
+          ]
+        },
+        {
+          "id": "tests[0].audit[0]",
+          "group": "expectations the policies do not meet",
+          "actor": "research/agent",
+          "request": "GET https://files.example.com/public/a.txt",
+          "want": {
+            "decision": "audit"
+          },
+          "got": {
+            "decision": "allow",
+            "reason": "route",
+            "policy": "files-audit",
+            "template": "/public/**"
+          },
+          "passed": false,
+          "mismatches": [
+            "decision"
+          ]
+        }
+      ]
+    }
+  ]
+}

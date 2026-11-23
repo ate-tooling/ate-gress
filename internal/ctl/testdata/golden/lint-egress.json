@@ -1,0 +1,99 @@
+{
+  "findings": [
+    {
+      "code": "ERP101",
+      "name": "audit-shadowed",
+      "severity": "warning",
+      "policy": "audit-research",
+      "file": "testdata/lint/policies.yaml",
+      "document": 2,
+      "field": "spec.hosts[1]",
+      "message": "never has effect on api.example.com: Enforce policy \"enforce-everyone\" claims the host for every actor this Audit policy selects, and an Enforce policy always takes precedence, so these routes are never consulted and no audit is ever recorded; its logAllowed still applies"
+    },
+    {
+      "code": "ERP301",
+      "name": "tls-passthrough",
+      "severity": "warning",
+      "policy": "audit-research",
+      "file": "testdata/lint/policies.yaml",
+      "document": 2,
+      "field": "spec.hosts[0].host",
+      "message": "testdata/lint/egress-policy.yaml forwards TLS to audit-only.example.com on port 443 without decrypting it (rules[1].tlsPassthrough \"*.example.com\"), so ate-gress never sees those requests and this policy is not enforced on them for the actor in atespace research that the EgressPolicy belongs to"
+    },
+    {
+      "code": "ERP102",
+      "name": "audit-partly-shadowed",
+      "severity": "warning",
+      "policy": "audit-prod",
+      "file": "testdata/lint/policies.yaml",
+      "document": 4,
+      "field": "spec.hosts[0]",
+      "message": "has no effect on files.example.com for the actors that Enforce policy \"enforce-teams\" also selects, such as team-prod/a: an Enforce policy always takes precedence there, so these routes are not consulted and no audit is recorded for them"
+    },
+    {
+      "code": "ERP201",
+      "name": "redundant-path",
+      "severity": "warning",
+      "policy": "routes",
+      "file": "testdata/lint/policies.yaml",
+      "document": 6,
+      "field": "spec.hosts[0].routes[0].paths[1]",
+      "message": "\"/v2/library/alpine\" is redundant: \"/v2/**\" in the same route already allows everything it matches for GET, HEAD"
+    },
+    {
+      "code": "ERP201",
+      "name": "redundant-path",
+      "severity": "warning",
+      "policy": "routes",
+      "file": "testdata/lint/policies.yaml",
+      "document": 6,
+      "field": "spec.hosts[0].routes[1].paths[0]",
+      "message": "\"/v2/library/alpine/manifests/latest\" is redundant: \"/v2/**\" (spec.hosts[0].routes[0].paths[0]) already allows everything it matches for GET"
+    },
+    {
+      "code": "ERP201",
+      "name": "redundant-path",
+      "severity": "warning",
+      "policy": "routes",
+      "file": "testdata/lint/policies.yaml",
+      "document": 6,
+      "field": "spec.hosts[0].routes[1].paths[1]",
+      "message": "\"/token\" is redundant: \"/token\" (spec.hosts[0].routes[0].paths[2]) already allows everything it matches for GET"
+    },
+    {
+      "code": "ERP202",
+      "name": "overlapping-routes",
+      "severity": "info",
+      "policy": "routes",
+      "file": "testdata/lint/policies.yaml",
+      "document": 6,
+      "field": "spec.hosts[0].routes[2].paths[0]",
+      "message": "\"/token\" is already allowed for GET by \"/token\" (spec.hosts[0].routes[0].paths[2]); only its other methods add anything"
+    },
+    {
+      "code": "ERP301",
+      "name": "tls-passthrough",
+      "severity": "warning",
+      "policy": "routes",
+      "file": "testdata/lint/policies.yaml",
+      "document": 6,
+      "field": "spec.hosts[0].host",
+      "message": "testdata/lint/egress-policy.yaml forwards TLS to registry.example.com on port 443 without decrypting it (rules[1].tlsPassthrough \"*.example.com\"), so ate-gress never sees those requests and this policy is not enforced on them for the actor in atespace research that the EgressPolicy belongs to; it is enforced only on port 8443 (rules[2].https \"registry.example.com\")"
+    },
+    {
+      "code": "ERP302",
+      "name": "host-not-reached",
+      "severity": "info",
+      "policy": "routes",
+      "file": "testdata/lint/policies.yaml",
+      "document": 6,
+      "field": "spec.hosts[1].host",
+      "message": "no http or https rule in testdata/lint/egress-policy.yaml reaches unreached.example.net, so the gateway refuses that traffic before it calls ate-gress and this claim has no effect for the actor in atespace research that the EgressPolicy belongs to"
+    }
+  ],
+  "summary": {
+    "error": 0,
+    "info": 2,
+    "warning": 7
+  }
+}

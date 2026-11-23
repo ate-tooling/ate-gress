@@ -1,0 +1,69 @@
+{
+  "findings": [
+    {
+      "code": "ERP101",
+      "name": "audit-shadowed",
+      "severity": "warning",
+      "policy": "audit-research",
+      "file": "testdata/lint/policies.yaml",
+      "document": 2,
+      "field": "spec.hosts[1]",
+      "message": "never has effect on api.example.com: Enforce policy \"enforce-everyone\" claims the host for every actor this Audit policy selects, and an Enforce policy always takes precedence, so these routes are never consulted and no audit is ever recorded; its logAllowed still applies"
+    },
+    {
+      "code": "ERP102",
+      "name": "audit-partly-shadowed",
+      "severity": "warning",
+      "policy": "audit-prod",
+      "file": "testdata/lint/policies.yaml",
+      "document": 4,
+      "field": "spec.hosts[0]",
+      "message": "has no effect on files.example.com for the actors that Enforce policy \"enforce-teams\" also selects, such as team-prod/a: an Enforce policy always takes precedence there, so these routes are not consulted and no audit is recorded for them"
+    },
+    {
+      "code": "ERP201",
+      "name": "redundant-path",
+      "severity": "warning",
+      "policy": "routes",
+      "file": "testdata/lint/policies.yaml",
+      "document": 6,
+      "field": "spec.hosts[0].routes[0].paths[1]",
+      "message": "\"/v2/library/alpine\" is redundant: \"/v2/**\" in the same route already allows everything it matches for GET, HEAD"
+    },
+    {
+      "code": "ERP201",
+      "name": "redundant-path",
+      "severity": "warning",
+      "policy": "routes",
+      "file": "testdata/lint/policies.yaml",
+      "document": 6,
+      "field": "spec.hosts[0].routes[1].paths[0]",
+      "message": "\"/v2/library/alpine/manifests/latest\" is redundant: \"/v2/**\" (spec.hosts[0].routes[0].paths[0]) already allows everything it matches for GET"
+    },
+    {
+      "code": "ERP201",
+      "name": "redundant-path",
+      "severity": "warning",
+      "policy": "routes",
+      "file": "testdata/lint/policies.yaml",
+      "document": 6,
+      "field": "spec.hosts[0].routes[1].paths[1]",
+      "message": "\"/token\" is redundant: \"/token\" (spec.hosts[0].routes[0].paths[2]) already allows everything it matches for GET"
+    },
+    {
+      "code": "ERP202",
+      "name": "overlapping-routes",
+      "severity": "info",
+      "policy": "routes",
+      "file": "testdata/lint/policies.yaml",
+      "document": 6,
+      "field": "spec.hosts[0].routes[2].paths[0]",
+      "message": "\"/token\" is already allowed for GET by \"/token\" (spec.hosts[0].routes[0].paths[2]); only its other methods add anything"
+    }
+  ],
+  "summary": {
+    "error": 0,
+    "info": 1,
+    "warning": 5
+  }
+}

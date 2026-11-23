@@ -1,0 +1,10 @@
+ERP001  schema                 error    The API server would reject the policy: it fails the CustomResourceDefinition's schema.
+ERP002  duplicate-item         error    A method, path, host or selector glob is listed twice; the API server rejects the policy.
+ERP003  compile                error    The compiler rejects the policy, so none of its routes is applied and it allows nothing.
+ERP101  audit-shadowed         warning  An Audit policy never has effect on a host: an Enforce policy claims the host for every actor it selects.
+ERP102  audit-partly-shadowed  warning  An Audit policy has no effect on a host for some of its actors: an Enforce policy claims the host for them too.
+ERP103  audit-maybe-shadowed   info     An Audit policy may have no effect on a host: an Enforce policy claims it, and their selectors may overlap.
+ERP201  redundant-path         warning  A path template allows nothing that another template of the same policy and host does not already allow.
+ERP202  overlapping-routes     info     Two routes of a policy allow the same paths for some of the same methods.
+ERP301  tls-passthrough        warning  A claimed host is on a tls_passthrough rule of the given EgressPolicy, so ate-gress never sees that traffic.
+ERP302  host-not-reached       info     No http or https rule of the given EgressPolicy reaches a claimed host, so the claim has no effect for that actor.

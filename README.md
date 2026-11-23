@@ -208,6 +208,44 @@ whichever it was created as.
 [docs/design.md](docs/design.md#api-versions) says why policies are still
 stored as `v1alpha1`, and what changes that.
 
+## Testing policies
+
+`ategressctl` checks policy files before they reach a cluster, so they can
+live in git and be gated in CI. It compiles and decides with the code
+ate-gress runs, and validates against the CRD's schema as the API server
+does, so its answers are the cluster's.
+
+```sh
+# Run a table of requests through the policies: what must be allowed, denied, audited.
+ategressctl test examples/github-single-org.tests.yaml
+
+# Why is this request allowed or denied, and which policies claim the host?
+ategressctl explain -f examples/ -a research/agent POST https://api.github.com/graphql
+
+# Policies the API server or compiler would reject, Audit policies an Enforce
+# policy overrides, redundant paths; and, given the actor's Substrate
+# EgressPolicy, claimed hosts on tls_passthrough, which ate-gress never sees.
+ategressctl lint -f examples/ --egress-policy research/agent=egress-policy.yaml
+```
+
+A test file lists requests per actor:
+
+```yaml
+policies: [github-single-org.yaml]
+tests:
+- actor: research/agent
+  allow:
+  - GET https://api.github.com/repos/acme/widget
+  deny:
+  - POST https://github.com/acme/widget.git/git-receive-pack
+  - request: POST https://api.github.com/graphql
+    reason: no_route
+```
+
+Binaries for Linux and macOS are attached to each release, and `make
+build-ategressctl` builds one. [docs/ategressctl.md](docs/ategressctl.md) has
+the test-file format, the lint codes, the JSON output and the exit codes.
+
 ## Operations
 
 | | |
@@ -340,6 +378,7 @@ comes back.
 
 ```sh
 make test         # unit, race, and envtest controller tests
+make build-ategressctl   # the policy testing CLI, into bin/
 make fuzz         # each fuzz target for FUZZTIME (default 10s)
 make bench        # request-path benchmarks
 make test-envoy   # behind a real Envoy configured like Substrate's gateway (Docker)

@@ -1,0 +1,104 @@
+# Tests for github-single-org.yaml. Run them with:
+#
+#   ategressctl test examples/github-single-org.tests.yaml
+#
+# docs/ategressctl.md describes the format.
+policies:
+- github-single-org.yaml
+
+tests:
+- name: research reads acme
+  actor: research/agent
+  allow:
+  # REST API, read-only. The query string is not matched.
+  - GET https://api.github.com/orgs/acme
+  - GET https://api.github.com/orgs/acme/repos
+  - GET https://api.github.com/repos/acme/widget
+  - GET https://api.github.com/repos/acme/widget/pulls?state=open
+  - HEAD https://api.github.com/repos/acme/widget/contents/docs/README.md
+  # GitHub's account and repository names are case-insensitive.
+  - GET https://api.github.com/orgs/Acme/repos
+  # The authority is matched without its port, case or trailing dot.
+  - GET https://API.GitHub.com:443/repos/acme/widget
+  - request: GET https://api.github.com/repos/acme/widget/issues/7
+    policy: github-acme-readonly
+    template: /repos/acme/*/**
+  # git clone and fetch over smart HTTP.
+  - GET https://github.com/acme/widget.git/info/refs?service=git-upload-pack
+  - POST https://github.com/acme/widget.git/git-upload-pack
+  # Archives and raw file contents.
+  - GET https://codeload.github.com/acme/widget/tar.gz/refs/heads/main
+  - GET https://raw.githubusercontent.com/acme/widget/main/README.md
+
+- name: research cannot write to acme
+  actor: research/agent
+  deny:
+  # Push is git-receive-pack, which no route lists.
+  - request: POST https://github.com/acme/widget.git/git-receive-pack
+    reason: no_route
+  - GET https://github.com/acme/widget.git/info/refs/extra
+  - PATCH https://api.github.com/repos/acme/widget
+  - DELETE https://api.github.com/repos/acme/widget
+  - POST https://api.github.com/repos/acme/widget/issues
+  - PUT https://api.github.com/repos/acme/widget/contents/README.md
+
+- name: research cannot reach another organization
+  actor: research/agent
+  deny:
+  - GET https://api.github.com/repos/other/widget
+  - GET https://api.github.com/orgs/other
+  - GET https://api.github.com/orgs/acme-evil/repos
+  - GET https://github.com/other/widget.git/info/refs?service=git-upload-pack
+  - POST https://github.com/other/widget.git/git-upload-pack
+  - GET https://codeload.github.com/other/widget/tar.gz/refs/heads/main
+  - GET https://raw.githubusercontent.com/other/widget/main/README.md
+  # A path the upstream could read as another organization's is refused
+  # outright, not matched.
+  - request: GET https://api.github.com/repos/acme/../other/widget
+    reason: path
+  - request: GET https://api.github.com/repos/acme%2F..%2Fother/widget
+    reason: path
+  - request: GET https://api.github.com/repos/acme//widget
+    reason: path
+  # The query string cannot smuggle an allowed path.
+  - GET https://api.github.com/user?x=/repos/acme/widget
+
+- name: research cannot use endpoints that name no organization in the path
+  actor: research/agent
+  deny:
+  # GraphQL names its target in the body, which ate-gress never sees.
+  - request: POST https://api.github.com/graphql
+    reason: no_route
+  - GET https://api.github.com/graphql
+  - GET https://api.github.com/repositories/1
+  - GET https://api.github.com/search/code?q=org:acme
+  - GET https://api.github.com/user/repos
+  - GET https://api.github.com/gists
+
+- name: every other atespace is locked out of GitHub
+  actor: billing/agent
+  deny:
+  - request: GET https://api.github.com/repos/acme/widget
+    reason: no_route
+    policy: github-lockdown
+  - GET https://api.github.com/orgs/acme
+  - GET https://github.com/acme/widget.git/info/refs?service=git-upload-pack
+  - POST https://github.com/acme/widget.git/git-upload-pack
+  - GET https://codeload.github.com/acme/widget/tar.gz/refs/heads/main
+  - GET https://raw.githubusercontent.com/acme/widget/main/README.md
+  - POST https://api.github.com/graphql
+
+- name: hosts the policies do not claim are left to Substrate's EgressPolicy
+  actor: research/agent
+  allow:
+  - request: GET https://pypi.org/simple/requests/
+    reason: unclaimed
+  # A subdomain is another host: claims are exact.
+  - request: GET https://gist.github.com/acme
+    reason: unclaimed
+
+- name: unclaimed hosts for other atespaces too
+  actor: billing/agent
+  allow:
+  - request: GET https://pypi.org/simple/requests/
+    reason: unclaimed

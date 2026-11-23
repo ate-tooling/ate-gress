@@ -41,6 +41,9 @@ func TestExamplesCompile(t *testing.T) {
 		t.Fatalf("no examples: %v", err)
 	}
 	for _, m := range matches {
+		if strings.HasSuffix(m, ".tests.yaml") {
+			continue // an ategressctl test file, which ategressctl's tests run
+		}
 		t.Run(filepath.Base(m), func(t *testing.T) {
 			mustCompile(t, loadExample(t, filepath.Base(m)))
 		})

@@ -1,0 +1,30 @@
+apiVersion: ategress.ate-tooling.github.io/v1alpha1
+kind: EgressRoutePolicy
+metadata:
+  name: api-readonly
+spec:
+  logAllowed: true
+  hosts:
+  - host: api.example.com
+    routes:
+    - methods: [GET]
+      paths: [/v1/**]
+---
+# Rolled out in Audit first: it allows what it would deny, and says so.
+apiVersion: ategress.ate-tooling.github.io/v1alpha1
+kind: EgressRoutePolicy
+metadata:
+  name: files-audit
+spec:
+  enforcementMode: Audit
+  actorSelector:
+    atespaces: [research]
+  hosts:
+  - host: files.example.com
+    routes:
+    - methods: [GET]
+      paths: [/public/**]
+  - host: api.example.com
+    routes:
+    - methods: [POST]
+      paths: [/v1/**]

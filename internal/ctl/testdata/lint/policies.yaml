@@ -1,0 +1,88 @@
+# Policies that are valid and each get something wrong, for the lint tests.
+apiVersion: ategress.ate-tooling.github.io/v1alpha1
+kind: EgressRoutePolicy
+metadata:
+  name: enforce-everyone
+spec:
+  hosts:
+  - host: api.example.com
+    routes:
+    - methods: [GET]
+      paths: [/v1/**]
+---
+# Shadowed on api.example.com, where enforce-everyone selects every actor;
+# effective on audit-only.example.com.
+apiVersion: ategress.ate-tooling.github.io/v1alpha1
+kind: EgressRoutePolicy
+metadata:
+  name: audit-research
+spec:
+  enforcementMode: Audit
+  logAllowed: true
+  actorSelector:
+    atespaces: [research]
+  hosts:
+  - host: audit-only.example.com
+  - host: api.example.com
+    routes:
+    - methods: [GET, POST]
+      paths: [/v1/**]
+---
+apiVersion: ategress.ate-tooling.github.io/v1alpha1
+kind: EgressRoutePolicy
+metadata:
+  name: enforce-teams
+spec:
+  actorSelector:
+    atespaces: [team-*]
+  hosts:
+  - host: files.example.com
+    routes:
+    - methods: [GET]
+      paths: [/public/**]
+---
+# Overlaps enforce-teams for atespaces such as team-prod, and not for others.
+apiVersion: ategress.ate-tooling.github.io/v1alpha1
+kind: EgressRoutePolicy
+metadata:
+  name: audit-prod
+spec:
+  enforcementMode: Audit
+  actorSelector:
+    atespaces: ["*-prod"]
+  hosts:
+  - host: files.example.com
+---
+# Disjoint from enforce-teams: nothing to report.
+apiVersion: ategress.ate-tooling.github.io/v1alpha1
+kind: EgressRoutePolicy
+metadata:
+  name: audit-staging
+spec:
+  enforcementMode: Audit
+  actorSelector:
+    atespaces: [staging-*]
+  hosts:
+  - host: files.example.com
+---
+apiVersion: ategress.ate-tooling.github.io/v1alpha1
+kind: EgressRoutePolicy
+metadata:
+  name: routes
+spec:
+  hosts:
+  - host: registry.example.com
+    routes:
+    - methods: [GET, HEAD]
+      paths:
+      - /v2/**
+      - /v2/library/alpine
+      - /token
+    - methods: [GET]
+      paths:
+      - /v2/library/alpine/manifests/latest
+      - /token
+    - methods: [GET, POST]
+      paths:
+      - /token
+  - host: unreached.example.net

@@ -1,0 +1,13 @@
+request   GET https://api.example.com/v1/items
+actor     research/agent
+decision  allow
+reason    route: a route matched the method and path
+policy    api-readonly
+template  /v1/**
+logged    at INFO: a claiming policy has logAllowed
+
+Policies claiming api.example.com for research/agent:
+  api-readonly  Enforce, logAllowed  alone: allow (route, /v1/**)
+  files-audit   Audit                alone: audit (no_route)
+
+An Enforce policy claims the host, so the Audit policies' routes are not consulted.

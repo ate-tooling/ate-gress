@@ -1,0 +1,62 @@
+[
+  {
+    "code": "ERP001",
+    "name": "schema",
+    "severity": "error",
+    "summary": "The API server would reject the policy: it fails the CustomResourceDefinition's schema."
+  },
+  {
+    "code": "ERP002",
+    "name": "duplicate-item",
+    "severity": "error",
+    "summary": "A method, path, host or selector glob is listed twice; the API server rejects the policy."
+  },
+  {
+    "code": "ERP003",
+    "name": "compile",
+    "severity": "error",
+    "summary": "The compiler rejects the policy, so none of its routes is applied and it allows nothing."
+  },
+  {
+    "code": "ERP101",
+    "name": "audit-shadowed",
+    "severity": "warning",
+    "summary": "An Audit policy never has effect on a host: an Enforce policy claims the host for every actor it selects."
+  },
+  {
+    "code": "ERP102",
+    "name": "audit-partly-shadowed",
+    "severity": "warning",
+    "summary": "An Audit policy has no effect on a host for some of its actors: an Enforce policy claims the host for them too."
+  },
+  {
+    "code": "ERP103",
+    "name": "audit-maybe-shadowed",
+    "severity": "info",
+    "summary": "An Audit policy may have no effect on a host: an Enforce policy claims it, and their selectors may overlap."
+  },
+  {
+    "code": "ERP201",
+    "name": "redundant-path",
+    "severity": "warning",
+    "summary": "A path template allows nothing that another template of the same policy and host does not already allow."
+  },
+  {
+    "code": "ERP202",
+    "name": "overlapping-routes",
+    "severity": "info",
+    "summary": "Two routes of a policy allow the same paths for some of the same methods."
+  },
+  {
+    "code": "ERP301",
+    "name": "tls-passthrough",
+    "severity": "warning",
+    "summary": "A claimed host is on a tls_passthrough rule of the given EgressPolicy, so ate-gress never sees that traffic."
+  },
+  {
+    "code": "ERP302",
+    "name": "host-not-reached",
+    "severity": "info",
+    "summary": "No http or https rule of the given EgressPolicy reaches a claimed host, so the claim has no effect for that actor."
+  }
+]

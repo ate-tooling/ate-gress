@@ -41,13 +41,21 @@ internal/extproc     ext_proc gRPC server: protocol in, Decide, protocol out
 internal/loglimit    per-key token buckets for the decision log
 internal/controller  informer -> Compile -> Store; status writer
 internal/tlsconfig   mTLS with per-handshake certificate reload
+
+cmd/ategressctl      the offline policy CLI (docs/ategressctl.md); not in the server image
+internal/ctl         its commands: test, explain, lint
+internal/policyfile  policy manifests from files, checked against the CRD schema as at admission
+internal/lint        static findings over a policy set
+internal/egresspolicy  Substrate EgressPolicy manifests: which hosts reach ate-gress
 ```
 
 Every security decision is made in `policy.Snapshot.Decide`. It is a pure
 function of compiled policies and four strings: actor, method, authority and
 path. It is tested exhaustively, and fuzzed against a reference implementation
 written to be obviously correct. The ext_proc server and the controller are
-thin adapters around it.
+thin adapters around it. So is `ategressctl`: it calls `Compile` and `Decide`
+on policies read from files, and reads the snapshot through a small read-only
+view (`Snapshot.Hosts`, `Claims`, `ClaimsFor`) that `Decide` does not use.
 
 ## Request path
 
