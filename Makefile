@@ -28,6 +28,7 @@ test: ## Unit tests, and the controller tests against an envtest API server.
 fuzz: ## Run each fuzz target for FUZZTIME.
 	go test -run='^$$' -fuzz=FuzzCanonicalize -fuzztime=$(FUZZTIME) ./internal/pathmatch
 	go test -run='^$$' -fuzz=FuzzMatch -fuzztime=$(FUZZTIME) ./internal/pathmatch
+	go test -run='^$$' -fuzz=FuzzCovers -fuzztime=$(FUZZTIME) ./internal/pathmatch
 	go test -run='^$$' -fuzz=FuzzParse -fuzztime=$(FUZZTIME) ./internal/identity
 	go test -run='^$$' -fuzz=FuzzDecide -fuzztime=$(FUZZTIME) ./internal/policy
 	go test -run='^$$' -fuzz=FuzzSchemaAgreesWithCompiler -fuzztime=$(FUZZTIME) ./internal/policy
