@@ -72,6 +72,34 @@ changes anything. Policies are not touched either way. If you applied the CRD
 with `kubectl apply --server-side`, Helm 4 also reports a conflict with
 `kubectl` on `.spec.versions`; add `--force-conflicts` to that one upgrade.
 
+### Rollback
+
+```sh
+helm rollback ate-gress <revision> -n ate-gress
+```
+
+A rollback puts back the earlier chart's CRD, and keeps every policy. This
+holds across the release that added `v1beta1`, because policies are still
+stored as `v1alpha1`; [API versions](#api-versions) has the details. After
+it:
+
+- **`kubectl` may answer `the server could not find the requested resource`**
+  for `kubectl get egressroutepolicies`. It has cached `v1beta1` as the
+  version to ask for, and the earlier CRD does not serve it. `kubectl
+  api-resources` refreshes the cache.
+- **Manifests that say `v1beta1` no longer apply** until you upgrade again.
+  The policies they created are still there, served as `v1alpha1`.
+- **Fields the earlier CRD lacks are not served.** A policy that uses one
+  keeps it in storage and shows it again after the next upgrade, but an
+  earlier ate-gress does not act on it.
+
+A rollback to `0.1.0-rc.4` or earlier leaves the CRD as it is, because those
+releases never held it. That is safe: the newer CRD still serves `v1alpha1`,
+which is all an earlier ate-gress reads. To put the earlier CRD back as well,
+apply that release's `ate-gress-<version>-crds.yaml` with `kubectl apply
+--server-side --force-conflicts`, and add `--force-conflicts` to the next
+`helm upgrade`.
+
 ## Policies
 
 ```yaml
@@ -131,6 +159,22 @@ clone/fetch, archives and raw content. It explains what cannot be filtered
 by path; `POST /graphql` is the main case.
 
 `kubectl get egressroutepolicies` shows whether each policy is `Accepted`.
+
+### API versions
+
+`EgressRoutePolicy` is served as `v1beta1` and as `v1alpha1`. The two have
+the same schema, and every policy can be read and written as either,
+whichever it was created as.
+
+- **`v1alpha1` manifests keep working**, unchanged. `kubectl apply` and
+  GitOps tools that re-apply them see no diff. `v1alpha1` is not deprecated.
+- **`kubectl get egressroutepolicies -o yaml` prints `v1beta1`** for every
+  policy, because `kubectl` asks for the most mature version served.
+- **Charts up to `0.1.0-rc.4` serve only `v1alpha1`.** Keep manifests at
+  `v1alpha1` for as long as you might run, or roll back to, one of them.
+
+[docs/design.md](docs/design.md#api-versions) says why policies are still
+stored as `v1alpha1`, and what changes that.
 
 ## Operations
 
@@ -260,7 +304,7 @@ make test-envoy   # behind a real Envoy configured like Substrate's gateway (Doc
 make lint
 make lint-workflows   # zizmor audit of the GitHub workflows (Docker)
 hack/e2e-kind.sh <substrate checkout>   # against a kind cluster running Substrate
-hack/upgrade-kind.sh   # helm upgrade from the last published chart, on a throwaway kind cluster
+hack/upgrade-kind.sh   # helm upgrade from the last published chart, and rollback, on a throwaway kind cluster
 ```
 
 The design is in [docs/design.md](docs/design.md).

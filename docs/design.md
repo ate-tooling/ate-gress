@@ -131,6 +131,53 @@ record.
   can only remove allows. A fuzz test checks that the schema pattern and the
   compiler accept exactly the same templates.
 
+## API versions
+
+`EgressRoutePolicy` is served as `v1alpha1` and `v1beta1`. `v1beta1` was
+added as a copy of `v1alpha1`, in a way that an upgrade and a rollback both
+leave every policy as it was.
+
+- **One schema, no conversion.** The CRD's conversion strategy is `None`: the
+  API server serves a stored object as either version by rewriting its
+  `apiVersion` and nothing else. That is only correct while the schemas are
+  identical. A field in one alone would be pruned, without an error, from an
+  object written through the other, and a validation rule in one alone could
+  be bypassed. Tests in `api/` fail if the generated schemas or the type
+  files differ. A real difference needs a conversion webhook, which every
+  read and write of a policy would then depend on.
+- **One version inside ate-gress.** The informer and the status writer use
+  `v1alpha1`. The API server hands them every policy as `v1alpha1`,
+  whichever version it was written as, so a second informer would only see
+  the same objects twice.
+- **Stored as `v1alpha1`, for now.** The API server records every version a
+  CRD has stored objects in, in `status.storedVersions`, and refuses a CRD
+  that lacks one of them. Had this release stored `v1beta1`, a rollback to
+  any earlier chart would have been refused with `v1beta1 was previously a
+  storage version, and must remain in spec.versions`. Serving the version
+  first, and storing it later, keeps the rollback.
+- **`v1beta1` is preferred.** The API server prefers the most mature served
+  version, whichever is stored, so clients that name no version, `kubectl
+  get` among them, get `v1beta1` for every policy.
+- **`v1alpha1` is not marked deprecated.** The API server would then warn on
+  every request that uses it, which is every manifest written so far and
+  ate-gress's own informer. That warning belongs in the release that stops
+  storing it.
+
+The steps from here, one per release at most:
+
+1. Serve `v1beta1`, store `v1alpha1`. This is the current state. A rollback
+   to any earlier chart works.
+2. Store `v1beta1`, and mark `v1alpha1` deprecated. From then on a rollback
+   only works to a chart that has `v1beta1`, so this waits until nobody is
+   expected to roll back past step 1. New and rewritten policies are stored
+   as `v1beta1`; untouched ones stay as they are and are still served.
+3. Remove `v1alpha1`. Before that, every policy must be rewritten so that
+   none is stored as `v1alpha1`, and `v1alpha1` removed from
+   `status.storedVersions`; otherwise the API server refuses the CRD.
+
+`hack/upgrade-kind.sh` runs the upgrade and the rollback on a kind cluster,
+and fails if an upgrade stores a version the chart it came from lacks.
+
 ## Availability
 
 The gateway fails closed, so ate-gress availability is egress availability
