@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# End-to-end test on a kind cluster that runs Agent Substrate installed by the
-# agent-substrate-operator. It installs ate-gress from its chart, points the
-# Substrate egress gateway at it, and drives real actor traffic through the
-# gateway and ate-gress:
+# End-to-end test on a kind cluster that runs Agent Substrate, installed by
+# the agent-substrate-operator or by Substrate's own ate-setup
+# (hack/substrate-kind-up.sh does either). It installs ate-gress from its
+# chart, points the Substrate egress gateway at it, and drives real actor
+# traffic through the gateway and ate-gress:
 #
 #   - cleartext HTTP to an in-cluster target, which needs nothing outside the
 #     cluster;
@@ -11,13 +12,18 @@
 #
 #   hack/e2e-kind.sh <upstream substrate checkout>
 #
-# The checkout builds the upstream egress demo actor into the kind registry if
-# the ate-demo-egress/egress actor template does not exist yet.
+# The checkout should be the Substrate the cluster runs. kubectl-ate is built
+# from it, and so is the upstream egress demo actor, into the kind registry,
+# if the ate-demo-egress/egress actor template does not exist yet. On a
+# cluster ate-setup installed, the checkout's ate-setup also redeploys the
+# gateway.
 #
 # Environment:
 #   KIND_CLUSTER_NAME  cluster to use (default substrate)
 #   E2E_GITHUB         0 skips the api.github.com checks
 #   KEEP               1 leaves the actors and policies in place
+#   ATE_RECORD_DIR     where ate-setup recorded the install, if it made it
+#                      (default bin/ate-setup in this repository)
 
 set -o errexit -o nounset -o pipefail
 
@@ -34,13 +40,17 @@ image="${registry}/ate-gress:e2e"
 arch="$(go env GOARCH)"
 atespace="ate-demo-egress"
 kubectl=(kubectl --context "${context}")
-kubectl_ate=(kubectl ate --context "${context}")
 target="whoami.ate-gress-e2e.svc.cluster.local"
+extproc="ate-gress/ate-gress:9443"
+record_dir="${ATE_RECORD_DIR:-${root}/bin/ate-setup}"
 
 BUILDX_BUILDER="${BUILDX_BUILDER:-$(docker context show)}"
 export BUILDX_BUILDER
 
 work="$(mktemp -d)"
+# Built from the checkout below, so it is the client of the Substrate under
+# test and not whichever kubectl-ate is on PATH.
+kubectl_ate=("${work}/kubectl-ate" --context "${context}")
 proxies=()
 failures=0
 cleanup() {
@@ -64,7 +74,17 @@ diagnostics() {
   "${kubectl[@]}" -n ate-gress get pods -o wide || true
   "${kubectl[@]}" -n ate-gress logs -l app.kubernetes.io/name=ate-gress --tail=50 --prefix || true
   "${kubectl[@]}" -n ate-system logs deploy/atenet-egress -c envoy --tail=30 || true
+  "${kubectl[@]}" -n ate-system get pods -o wide || true
+  "${kubectl[@]}" -n "${atespace}" get pods -o wide || true
 }
+
+# ate_setup runs the checkout's installer against the cluster.
+ate_setup() {
+  (cd "${upstream}" && go run ./cmd/ate-setup --no-dev-env "$@")
+}
+
+step "building kubectl-ate from $(git -C "${upstream}" describe --tags --always)"
+(cd "${upstream}" && go build -o "${work}/kubectl-ate" ./cmd/kubectl-ate)
 
 step "building ate-gress into the kind registry"
 docker buildx build --platform "linux/${arch}" --load -t "${image}" "${root}" >/dev/null
@@ -82,16 +102,30 @@ helm --kube-context "${context}" upgrade --install ate-gress "${root}/charts/ate
 "${kubectl[@]}" -n ate-gress rollout status deploy/ate-gress --timeout=5m
 
 step "pointing Substrate's egress gateway at ate-gress"
-"${kubectl[@]}" patch substrateinstall substrate --type merge \
-  -p '{"spec":{"atenet":{"additionalEgressExtprocService":"ate-gress/ate-gress:9443"}}}'
-"${kubectl[@]}" wait substrateinstall/substrate --for=condition=Ready --timeout=10m
+if "${kubectl[@]}" get substrateinstall substrate >/dev/null 2>&1; then
+  "${kubectl[@]}" patch substrateinstall substrate --type merge \
+    -p "{\"spec\":{\"atenet\":{\"additionalEgressExtprocService\":\"${extproc}\"}}}"
+  "${kubectl[@]}" wait substrateinstall/substrate --for=condition=Ready --timeout=10m
+else
+  # No operator: ate-setup installed this cluster. Its flag is the extension
+  # point itself, and takes effect by redeploying the gateway with the
+  # settings the install recorded.
+  record="${record_dir}/installs/${context}.yaml"
+  if [[ ! -f "${record}" ]]; then
+    echo "The cluster has no SubstrateInstall, and ate-setup recorded no install of it at ${record}." >&2
+    echo "Install Substrate with hack/substrate-kind-up.sh, or set ATE_RECORD_DIR." >&2
+    exit 1
+  fi
+  ate_setup --config "${record}" --record-dir "${record_dir}" \
+    --experimental-additional-egress-extproc-service="${extproc}" deploy atenet
+fi
 "${kubectl[@]}" -n ate-system rollout status deploy/atenet-egress --timeout=5m
 
 if ! "${kubectl_ate[@]}" get actor-template egress -a "${atespace}" >/dev/null 2>&1; then
   step "deploying the upstream egress demo"
-  (cd "${upstream}" && go run ./cmd/ate-setup --no-dev-env --kind --kind-cluster-name "${cluster}" \
+  ate_setup --kind --kind-cluster-name "${cluster}" \
     --ko-docker-repo "${registry}/substrate" --ko-default-platforms "linux/${arch}" \
-    --rollout-timeout 5m deploy demo egress)
+    --rollout-timeout 5m deploy demo egress
 fi
 
 step "deploying an in-cluster target"
@@ -195,6 +229,8 @@ fetch() {
     -d "{\"url\":\"$2\"}"
 }
 
+denied="egress route denied"
+
 # expect ACTOR PORT URL STATUS [BODY_SUBSTRING]
 expect() {
   local actor=$1 port=$2 url=$3 want=$4 body=${5:-} got
@@ -203,6 +239,12 @@ expect() {
   status="$(printf '%s' "${got}" | sed -n 's/.*"statusCode":\([0-9]*\).*/\1/p')"
   if [[ "${status}" == "${want}" && ( -z "${body}" || "${got}" == *"${body}"* ) ]]; then
     printf 'ok    %-12s %s -> %s\n' "${actor}" "${url}" "${status}"
+  elif [[ "${want}" == 200 && "${url}" == https://api.github.com/* && "${status}" =~ ^(403|429)$ &&
+    "${got}" == *"rate limit"* && "${got}" != *"${denied}"* ]]; then
+    # GitHub limits unauthenticated callers by address, and CI runners share
+    # theirs. Its refusal still shows what this check is for: the gateway and
+    # ate-gress let the request through to GitHub.
+    printf 'ok    %-12s %s -> %s (rate limited by GitHub, so allowed by ate-gress)\n' "${actor}" "${url}" "${status}"
   else
     printf 'FAIL  %-12s %s -> %s, want %s %s\n      %s\n' "${actor}" "${url}" "${status:-none}" "${want}" "${body}" "${got:0:300}"
     failures=$((failures + 1))
@@ -223,7 +265,6 @@ for p in 18000 18001; do
 done
 
 step "cleartext HTTP through the gateway"
-denied="egress route denied"
 expect e2e-research 18000 "http://${target}/repos/acme/widget" 200 "GET /repos/acme/widget"
 expect e2e-research 18000 "http://${target}/repos/ACME/widget/pulls?state=open" 200
 expect e2e-research 18000 "http://${target}/repos/other/widget" 403 "${denied}"

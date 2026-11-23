@@ -5,3 +5,5 @@ dist/
 charts/
 test/
 examples/
+# The Substrate checkout the e2e-substrate workflow makes in the workspace.
+_substrate/

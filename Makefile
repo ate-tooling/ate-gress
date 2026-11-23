@@ -25,22 +25,32 @@ test: ## Unit tests, and the controller tests against an envtest API server.
 		go test -race -count=3 -shuffle=on ./...
 
 .PHONY: fuzz
-fuzz: ## Run each fuzz target for FUZZTIME.
-	go test -run='^$$' -fuzz=FuzzCanonicalize -fuzztime=$(FUZZTIME) ./internal/pathmatch
-	go test -run='^$$' -fuzz=FuzzMatch -fuzztime=$(FUZZTIME) ./internal/pathmatch
-	go test -run='^$$' -fuzz=FuzzParse -fuzztime=$(FUZZTIME) ./internal/identity
-	go test -run='^$$' -fuzz=FuzzDecide -fuzztime=$(FUZZTIME) ./internal/policy
-	go test -run='^$$' -fuzz=FuzzSchemaAgreesWithCompiler -fuzztime=$(FUZZTIME) ./internal/policy
+fuzz: ## Run each fuzz target (hack/fuzz.sh list) for FUZZTIME.
+	hack/fuzz.sh all $(FUZZTIME)
 
 .PHONY: bench
 bench: ## Benchmarks for the request path.
 	go test -run='^$$' -bench=. -benchmem ./internal/pathmatch ./internal/identity ./internal/policy ./internal/loglimit ./internal/extproc
 
-ENVOY_IMAGE ?= envoyproxy/envoy:v1.39.5
+# The Envoy that Substrate's egress gateway ships: the last FROM line of
+# cmd/dataplane/envoy/Dockerfile in Substrate, verbatim.
+# hack/check-envoy-pin.sh compares the two.
+ENVOY_IMAGE ?= envoyproxy/envoy:v1.39.5@sha256:8fc594a5d85eb76dca24155cfb9208882406873932b20cf33649a0a611194c43
+# The newest stable Envoy, which Dependabot keeps current, and Envoy's main
+# branch build, which is a moving tag on purpose.
+ENVOY_STABLE_IMAGE ?= $(shell sed -n 's/^FROM //p' test/envoy/stable.Dockerfile)
+ENVOY_DEV_IMAGE ?= envoyproxy/envoy:dev
 
 .PHONY: test-envoy
 test-envoy: ## Run ate-gress behind a real Envoy configured like Substrate's egress gateway.
 	ATEGRESS_ENVOY_IMAGE=$(ENVOY_IMAGE) go test -count=1 -tags=envoy ./test/envoy/...
+
+.PHONY: test-envoy-stable test-envoy-dev
+test-envoy-stable: ## The same test against the newest stable Envoy.
+	$(MAKE) test-envoy ENVOY_IMAGE=$(ENVOY_STABLE_IMAGE)
+test-envoy-dev: ## The same test against Envoy's main branch build.
+	docker pull -q $(ENVOY_DEV_IMAGE)
+	$(MAKE) test-envoy ENVOY_IMAGE=$(ENVOY_DEV_IMAGE)
 
 .PHONY: lint
 lint:
