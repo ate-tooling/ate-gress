@@ -45,6 +45,33 @@ SBOM, and the chart pins the image by digest. Check them before installing:
 `hack/verify-release.sh <version>`. [docs/releasing.md](docs/releasing.md)
 covers the pipeline and the manual checks.
 
+## Upgrade
+
+```sh
+helm upgrade ate-gress oci://ghcr.io/ate-tooling/charts/ate-gress --version <version> -n ate-gress
+```
+
+The `EgressRoutePolicy` CRD is part of the release, so an upgrade brings the
+new schema with it. `helm uninstall` keeps the CRD, because deleting it would
+delete every policy. To apply the CRD yourself, from the release's
+`ate-gress-<version>-crds.yaml`, set `crds.install=false`.
+
+**Once, when upgrading from `0.1.0-rc.4` or earlier:** those charts shipped
+the CRD in `crds/`, which Helm installs but never upgrades, and does not
+count as part of the release. Hand the CRD to the release before the
+upgrade, with the release's name and namespace:
+
+```sh
+crd=egressroutepolicies.ategress.ate-tooling.github.io
+kubectl label crd $crd app.kubernetes.io/managed-by=Helm
+kubectl annotate crd $crd meta.helm.sh/release-name=ate-gress meta.helm.sh/release-namespace=ate-gress
+```
+
+Without this the upgrade stops with `invalid ownership metadata` before it
+changes anything. Policies are not touched either way. If you applied the CRD
+with `kubectl apply --server-side`, Helm 4 also reports a conflict with
+`kubectl` on `.spec.versions`; add `--force-conflicts` to that one upgrade.
+
 ## Policies
 
 ```yaml
@@ -125,6 +152,7 @@ make test-envoy   # behind a real Envoy configured like Substrate's gateway (Doc
 make lint
 make lint-workflows   # zizmor audit of the GitHub workflows (Docker)
 hack/e2e-kind.sh <substrate checkout>   # against a kind cluster running Substrate
+hack/upgrade-kind.sh   # helm upgrade from the last published chart, on a throwaway kind cluster
 ```
 
 The design is in [docs/design.md](docs/design.md).

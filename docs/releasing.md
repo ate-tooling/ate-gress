@@ -18,7 +18,8 @@ image by digest.
 
 ```
 tag vX.Y.Z
-  ├─ ci            the full CI workflow: lint, unit, race, envtest, fuzz, real Envoy, image build
+  ├─ ci            the full CI workflow: lint, unit, race, envtest, fuzz, real Envoy, image build,
+  │                chart upgrade from the last published version
   ├─ plan          version from the tag; refuses a version whose image already exists
   ├─ image         buildx multi-arch → push → cosign sign → provenance → syft SBOM → SBOM attestation
   ├─ chart         package with image.digest set → push → cosign sign → provenance
