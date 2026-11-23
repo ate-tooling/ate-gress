@@ -65,10 +65,13 @@
 #     them (reason "no_route"). A template ending in "/" does, one depth at a
 #     time: /*/ for "folder/", /*/*/ for "a/b/".
 # Other keys work, including non-ASCII keys, which clients percent-encode.
+#
+# Charts up to 0.1.0-rc.4 serve these as v1alpha1 only; change the apiVersion
+# to apply them there. Nothing else differs.
 ---
 # Every actor: the bucket, its legacy name, and the path-style endpoints are
 # claimed, and with no routes, nothing is allowed.
-apiVersion: ategress.ate-tooling.github.io/v1alpha1
+apiVersion: ategress.ate-tooling.github.io/v1beta1
 kind: EgressRoutePolicy
 metadata:
   name: s3-acme-data-lockdown
@@ -80,7 +83,7 @@ spec:
   - host: s3.amazonaws.com
 ---
 # The research atespace: list the bucket and read objects.
-apiVersion: ategress.ate-tooling.github.io/v1alpha1
+apiVersion: ategress.ate-tooling.github.io/v1beta1
 kind: EgressRoutePolicy
 metadata:
   name: s3-acme-data-read
@@ -97,7 +100,7 @@ spec:
 ---
 # The ingest atespace: read, and write and delete objects. Nothing that
 # changes the bucket.
-apiVersion: ategress.ate-tooling.github.io/v1alpha1
+apiVersion: ategress.ate-tooling.github.io/v1beta1
 kind: EgressRoutePolicy
 metadata:
   name: s3-acme-data-write

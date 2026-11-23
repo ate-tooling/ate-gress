@@ -46,8 +46,11 @@
 # The scoped tarball route is kept because a lockfile records tarball URLs:
 # a client that fetches straight from them needs no package document. Whether
 # `npm ci` does so for every package was not verified here.
+#
+# Charts up to 0.1.0-rc.4 serve this as v1alpha1 only; change the apiVersion
+# to apply it there. Nothing else differs.
 ---
-apiVersion: ategress.ate-tooling.github.io/v1alpha1
+apiVersion: ategress.ate-tooling.github.io/v1beta1
 kind: EgressRoutePolicy
 metadata:
   name: npm-readonly

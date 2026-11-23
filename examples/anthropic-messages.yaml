@@ -51,9 +51,12 @@
 #
 # The query string is not matched, so /v1/messages?beta=true, which SDKs send
 # for beta features, is the same route.
+#
+# Charts up to 0.1.0-rc.4 serve these as v1alpha1 only; change the apiVersion
+# to apply them there. Nothing else differs.
 ---
 # Every actor: the API is claimed, and with no routes, nothing is allowed.
-apiVersion: ategress.ate-tooling.github.io/v1alpha1
+apiVersion: ategress.ate-tooling.github.io/v1beta1
 kind: EgressRoutePolicy
 metadata:
   name: anthropic-lockdown
@@ -62,7 +65,7 @@ spec:
   - host: api.anthropic.com
 ---
 # The agents atespace: inference only.
-apiVersion: ategress.ate-tooling.github.io/v1alpha1
+apiVersion: ategress.ate-tooling.github.io/v1beta1
 kind: EgressRoutePolicy
 metadata:
   name: anthropic-inference

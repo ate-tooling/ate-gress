@@ -49,9 +49,12 @@
 # its token service is on another host (auth.docker.io), official images are
 # under library/, and blobs redirect to CDN hosts this example did not pin
 # down. Each of those hosts needs its own entry.
+#
+# Charts up to 0.1.0-rc.4 serve these as v1alpha1 only; change the apiVersion
+# to apply them there. Nothing else differs.
 ---
 # Every actor: ghcr.io is claimed, and with no routes, nothing is allowed.
-apiVersion: ategress.ate-tooling.github.io/v1alpha1
+apiVersion: ategress.ate-tooling.github.io/v1beta1
 kind: EgressRoutePolicy
 metadata:
   name: ghcr-lockdown
@@ -60,7 +63,7 @@ spec:
   - host: ghcr.io
 ---
 # The build atespace: pull from acme.
-apiVersion: ategress.ate-tooling.github.io/v1alpha1
+apiVersion: ategress.ate-tooling.github.io/v1beta1
 kind: EgressRoutePolicy
 metadata:
   name: ghcr-acme-pull

@@ -39,8 +39,11 @@
 #   - Every method but GET and HEAD.
 #   - Everything on upload.pypi.org, so an EgressPolicy that allows it by a
 #     wildcard still cannot publish.
+#
+# Charts up to 0.1.0-rc.4 serve this as v1alpha1 only; change the apiVersion
+# to apply it there. Nothing else differs.
 ---
-apiVersion: ategress.ate-tooling.github.io/v1alpha1
+apiVersion: ategress.ate-tooling.github.io/v1beta1
 kind: EgressRoutePolicy
 metadata:
   name: pypi-readonly
