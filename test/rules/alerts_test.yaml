@@ -1,0 +1,385 @@
+# Unit tests for the chart's alert rules, run by hack/test-rules.sh with
+# promtool. rules.yaml is the PrometheusRule's spec as the chart renders it
+# with default values in the ate-gress namespace, which the script writes
+# beside a copy of this file.
+#
+# Most tests ask which alerts are firing through the ALERTS series, so they do
+# not have to repeat every annotation. The first one checks a whole alert,
+# annotations and runbook link included.
+rule_files:
+- rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+- name: a healthy pair of replicas fires nothing
+  interval: 1m
+  input_series:
+  - series: ategress_build_info{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a",version="dev"}
+    values: 1x60
+  - series: ategress_build_info{job="ate-gress/ate-gress",instance="b",pod="ate-gress-b",version="dev"}
+    values: 1x60
+  - series: ategress_snapshot_last_build_timestamp_seconds{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a"}
+    values: 100x60
+  - series: ategress_snapshot_last_build_timestamp_seconds{job="ate-gress/ate-gress",instance="b",pod="ate-gress-b"}
+    values: 900x60
+  - series: ategress_snapshot_policies_hash{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a"}
+    values: 4242x60
+  - series: ategress_snapshot_policies_hash{job="ate-gress/ate-gress",instance="b",pod="ate-gress-b"}
+    values: 4242x60
+  - series: ategress_policies{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a",state="rejected"}
+    values: 0x60
+  - series: ategress_policies{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a",state="accepted"}
+    values: 12x60
+  # A day of validity, as the servicedns signer issues.
+  - series: ategress_tls_certificate_expiry_timestamp_seconds{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a"}
+    values: 86400x60
+  - series: ategress_tls_certificate_expiry_timestamp_seconds{job="ate-gress/ate-gress",instance="b",pod="ate-gress-b"}
+    values: 86400x60
+  - series: ategress_tls_reload_failures_total{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a",file="credential_bundle"}
+    values: 0x60
+  - series: ategress_tls_handshake_failures_total{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a",reason="client_certificate"}
+    values: 0x60
+  # A port scan: counted as other, which no alert watches.
+  - series: ategress_tls_handshake_failures_total{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a",reason="other"}
+    values: 0+5x60
+  - series: ategress_decision_logs_suppressed_total{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a"}
+    values: 0x60
+  # 100 requests a second, 5% of them denied, all decided within 16µs.
+  - series: ategress_decisions_total{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a",decision="allow",reason="route"}
+    values: 0+5700x60
+  - series: ategress_decisions_total{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a",decision="deny",reason="no_route"}
+    values: 0+300x60
+  - series: ategress_decision_duration_seconds_bucket{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a",le="1.6e-05"}
+    values: 0+6000x60
+  - series: ategress_decision_duration_seconds_bucket{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a",le="0.262144"}
+    values: 0+6000x60
+  - series: ategress_decision_duration_seconds_bucket{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a",le="+Inf"}
+    values: 0+6000x60
+  promql_expr_test:
+  - expr: ALERTS
+    eval_time: 45m
+    exp_samples: []
+
+- name: no replica at all is AteGressDown after 2m
+  interval: 1m
+  input_series: []
+  alert_rule_test:
+  - eval_time: 1m
+    alertname: AteGressDown
+    exp_alerts: []
+  - eval_time: 2m
+    alertname: AteGressDown
+    exp_alerts:
+    - exp_labels:
+        severity: critical
+      exp_annotations:
+        summary: No ate-gress replica is serving; HTTP egress is failing closed.
+        description: >-
+          No replica reports a policy snapshot in effect. The egress gateway
+          denies every HTTP request, to claimed and unclaimed hosts alike,
+          until one does.
+        runbook_url: https://github.com/ate-tooling/ate-gress/blob/main/docs/runbook.md#ategressdown
+
+- name: replicas that are up but have no snapshot are down too
+  interval: 1m
+  input_series:
+  - series: ategress_snapshot_last_build_timestamp_seconds{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a"}
+    values: 0x10
+  - series: ategress_snapshot_policies_hash{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a"}
+    values: 0x10
+  promql_expr_test:
+  - expr: count by (alertname) (ALERTS{alertstate="firing"})
+    eval_time: 6m
+    exp_samples:
+    - labels: '{alertname="AteGressDown"}'
+      value: 1
+    - labels: '{alertname="AteGressNoSnapshot"}'
+      value: 1
+
+- name: one serving replica is AteGressReplicasLow, not AteGressDown
+  interval: 1m
+  input_series:
+  - series: ategress_snapshot_last_build_timestamp_seconds{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a"}
+    values: 100x10
+  promql_expr_test:
+  - expr: count by (alertname) (ALERTS{alertstate="firing"})
+    eval_time: 4m
+    exp_samples: []
+  - expr: count by (alertname) (ALERTS{alertstate="firing"})
+    eval_time: 5m
+    exp_samples:
+    - labels: '{alertname="AteGressReplicasLow"}'
+      value: 1
+
+- name: a rolling update, where a new replica is briefly without a snapshot, fires nothing
+  interval: 1m
+  input_series:
+  - series: ategress_snapshot_last_build_timestamp_seconds{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a"}
+    values: 100x20
+  - series: ategress_snapshot_last_build_timestamp_seconds{job="ate-gress/ate-gress",instance="b",pod="ate-gress-b"}
+    values: 100x10 stale
+  - series: ategress_snapshot_last_build_timestamp_seconds{job="ate-gress/ate-gress",instance="c",pod="ate-gress-c"}
+    values: _x8 0 600x11
+  - series: ategress_snapshot_policies_hash{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a"}
+    values: 4242x20
+  - series: ategress_snapshot_policies_hash{job="ate-gress/ate-gress",instance="b",pod="ate-gress-b"}
+    values: 4242x10 stale
+  - series: ategress_snapshot_policies_hash{job="ate-gress/ate-gress",instance="c",pod="ate-gress-c"}
+    values: _x8 0 4242x11
+  promql_expr_test:
+  - expr: ALERTS
+    eval_time: 20m
+    exp_samples: []
+
+- name: decisions slower than the threshold are AteGressDecisionLatencyHigh
+  interval: 1m
+  input_series:
+  # Every decision lands above the last finite bucket.
+  - series: ategress_decision_duration_seconds_bucket{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a",le="1.6e-05"}
+    values: 0x20
+  - series: ategress_decision_duration_seconds_bucket{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a",le="0.262144"}
+    values: 0x20
+  - series: ategress_decision_duration_seconds_bucket{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a",le="+Inf"}
+    values: 0+600x20
+  promql_expr_test:
+  - expr: ALERTS{alertname="AteGressDecisionLatencyHigh",alertstate="firing"}
+    eval_time: 4m
+    exp_samples: []
+  - expr: ALERTS{alertname="AteGressDecisionLatencyHigh",alertstate="firing"}
+    eval_time: 7m
+    exp_samples:
+    - labels: 'ALERTS{alertname="AteGressDecisionLatencyHigh",alertstate="firing",severity="warning",job="ate-gress/ate-gress",instance="a",pod="ate-gress-a"}'
+      value: 1
+
+- name: one starved replica is AteGressDecisionLatencyHigh, though the fleet's 99th percentile is fine
+  interval: 1m
+  input_series:
+  # a decides 6000 requests a minute within 16µs; b decides 30, all slowly.
+  - series: ategress_decision_duration_seconds_bucket{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a",le="1.6e-05"}
+    values: 0+6000x20
+  - series: ategress_decision_duration_seconds_bucket{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a",le="0.262144"}
+    values: 0+6000x20
+  - series: ategress_decision_duration_seconds_bucket{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a",le="+Inf"}
+    values: 0+6000x20
+  - series: ategress_decision_duration_seconds_bucket{job="ate-gress/ate-gress",instance="b",pod="ate-gress-b",le="1.6e-05"}
+    values: 0x20
+  - series: ategress_decision_duration_seconds_bucket{job="ate-gress/ate-gress",instance="b",pod="ate-gress-b",le="0.262144"}
+    values: 0x20
+  - series: ategress_decision_duration_seconds_bucket{job="ate-gress/ate-gress",instance="b",pod="ate-gress-b",le="+Inf"}
+    values: 0+30x20
+  promql_expr_test:
+  - expr: ALERTS{alertname="AteGressDecisionLatencyHigh",alertstate="firing"}
+    eval_time: 10m
+    exp_samples:
+    - labels: 'ALERTS{alertname="AteGressDecisionLatencyHigh",alertstate="firing",severity="warning",job="ate-gress/ate-gress",instance="b",pod="ate-gress-b"}'
+      value: 1
+
+- name: half of a real volume of requests denied is AteGressDenyRateHigh
+  interval: 1m
+  input_series:
+  - series: ategress_decisions_total{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a",decision="allow",reason="route"}
+    values: 0+120x30
+  - series: ategress_decisions_total{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a",decision="deny",reason="no_route"}
+    values: 0+120x30
+  promql_expr_test:
+  - expr: ALERTS{alertname="AteGressDenyRateHigh",alertstate="firing"}
+    eval_time: 9m
+    exp_samples: []
+  # rate() needs a few samples before it reports the full 2 a second, so the
+  # 10 minutes start a little after the denials do.
+  - expr: ALERTS{alertname="AteGressDenyRateHigh",alertstate="firing"}
+    eval_time: 15m
+    exp_samples:
+    - labels: 'ALERTS{alertname="AteGressDenyRateHigh",alertstate="firing",severity="warning"}'
+      value: 1
+
+- name: denials under a reason the rules do not name still count toward AteGressDenyRateHigh
+  interval: 1m
+  input_series:
+  # invalid_policy is newer than these rules were first written; any reason
+  # counts, and only identity and headers are the gateway's contract.
+  - series: ategress_decisions_total{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a",decision="allow",reason="route"}
+    values: 0+120x30
+  - series: ategress_decisions_total{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a",decision="deny",reason="invalid_policy"}
+    values: 0+120x30
+  - series: ategress_decisions_total{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a",decision="deny",reason="some_future_reason"}
+    values: 0+30x30
+  promql_expr_test:
+  - expr: count by (alertname) (ALERTS{alertstate="firing",alertname=~"AteGressDeny.*|AteGressGateway.*"})
+    eval_time: 15m
+    exp_samples:
+    - labels: '{alertname="AteGressDenyRateHigh"}'
+      value: 1
+
+- name: a high share of a trickle of requests denied is not AteGressDenyRateHigh
+  interval: 1m
+  input_series:
+  # One denial every two seconds, and nothing else.
+  - series: ategress_decisions_total{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a",decision="deny",reason="no_route"}
+    values: 0+30x30
+  promql_expr_test:
+  - expr: ALERTS{alertname="AteGressDenyRateHigh"}
+    eval_time: 30m
+    exp_samples: []
+
+- name: denials for a missing identity are AteGressGatewayContractBroken
+  interval: 1m
+  input_series:
+  - series: ategress_decisions_total{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a",decision="deny",reason="identity"}
+    values: 0+30x30
+  - series: ategress_decisions_total{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a",decision="deny",reason="no_route"}
+    values: 0+30x30
+  promql_expr_test:
+  - expr: ALERTS{alertname="AteGressGatewayContractBroken",alertstate="firing"}
+    eval_time: 7m
+    exp_samples:
+    - labels: 'ALERTS{alertname="AteGressGatewayContractBroken",alertstate="firing",severity="warning",reason="identity"}'
+      value: 1
+
+- name: a rejected policy is AteGressPoliciesRejected
+  interval: 1m
+  input_series:
+  - series: ategress_policies{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a",state="rejected"}
+    values: 0x5 1x20
+  - series: ategress_policies{job="ate-gress/ate-gress",instance="b",pod="ate-gress-b",state="rejected"}
+    values: 0x5 1x20
+  promql_expr_test:
+  - expr: ALERTS{alertname="AteGressPoliciesRejected",alertstate="firing"}
+    eval_time: 9m
+    exp_samples: []
+  - expr: ALERTS{alertname="AteGressPoliciesRejected",alertstate="firing"}
+    eval_time: 12m
+    exp_samples:
+    - labels: 'ALERTS{alertname="AteGressPoliciesRejected",alertstate="firing",severity="warning"}'
+      value: 1
+
+- name: replicas that disagree for a moment on a policy change are not diverged
+  interval: 1m
+  input_series:
+  - series: ategress_snapshot_last_build_timestamp_seconds{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a"}
+    values: 100x20
+  - series: ategress_snapshot_last_build_timestamp_seconds{job="ate-gress/ate-gress",instance="b",pod="ate-gress-b"}
+    values: 100x20
+  - series: ategress_snapshot_policies_hash{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a"}
+    values: 1x5 2x15
+  - series: ategress_snapshot_policies_hash{job="ate-gress/ate-gress",instance="b",pod="ate-gress-b"}
+    values: 1x7 2x13
+  promql_expr_test:
+  - expr: ALERTS{alertname="AteGressPoliciesDiverged",alertstate="firing"}
+    eval_time: 20m
+    exp_samples: []
+
+- name: a replica that stays on old policies is AteGressPoliciesDiverged
+  interval: 1m
+  input_series:
+  - series: ategress_snapshot_last_build_timestamp_seconds{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a"}
+    values: 100x20
+  - series: ategress_snapshot_last_build_timestamp_seconds{job="ate-gress/ate-gress",instance="b",pod="ate-gress-b"}
+    values: 100x20
+  - series: ategress_snapshot_policies_hash{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a"}
+    values: 1x5 2x15
+  - series: ategress_snapshot_policies_hash{job="ate-gress/ate-gress",instance="b",pod="ate-gress-b"}
+    values: 1x20
+  promql_expr_test:
+  - expr: ALERTS{alertname="AteGressPoliciesDiverged",alertstate="firing"}
+    eval_time: 10m
+    exp_samples: []
+  - expr: ALERTS{alertname="AteGressPoliciesDiverged",alertstate="firing"}
+    eval_time: 12m
+    exp_samples:
+    - labels: 'ALERTS{alertname="AteGressPoliciesDiverged",alertstate="firing",severity="critical"}'
+      value: 1
+
+- name: a certificate the kubelet rotates on time never alerts
+  interval: 1m
+  input_series:
+  # Expires at 40m. The signer asks for a refresh 30 minutes before, and the
+  # kubelet delivers the next certificate a few minutes into that window.
+  - series: ategress_tls_certificate_expiry_timestamp_seconds{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a"}
+    values: 2400x15 88800x45
+  promql_expr_test:
+  - expr: ALERTS{alertname="AteGressCertificateExpiringSoon"}
+    eval_time: 60m
+    exp_samples: []
+
+- name: a certificate that is not rotated is AteGressCertificateExpiringSoon with 20 minutes left
+  interval: 1m
+  input_series:
+  - series: ategress_tls_certificate_expiry_timestamp_seconds{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a"}
+    values: 2400x60
+  promql_expr_test:
+  # 20 minutes left is at 20m; the alert needs it to be under that for 1m.
+  - expr: ALERTS{alertname="AteGressCertificateExpiringSoon",alertstate="firing"}
+    eval_time: 20m
+    exp_samples: []
+  - expr: ALERTS{alertname="AteGressCertificateExpiringSoon",alertstate="firing"}
+    eval_time: 22m
+    exp_samples:
+    - labels: 'ALERTS{alertname="AteGressCertificateExpiringSoon",alertstate="firing",severity="critical",job="ate-gress/ate-gress",instance="a",pod="ate-gress-a"}'
+      value: 1
+
+- name: a replica that is up without a certificate expiry is AteGressCertificateUnreadable
+  interval: 1m
+  input_series:
+  - series: ategress_build_info{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a",version="dev"}
+    values: 1x20
+  - series: ategress_build_info{job="ate-gress/ate-gress",instance="b",pod="ate-gress-b",version="dev"}
+    values: 1x20
+  - series: ategress_tls_certificate_expiry_timestamp_seconds{job="ate-gress/ate-gress",instance="b",pod="ate-gress-b"}
+    values: 86400x20
+  promql_expr_test:
+  - expr: ALERTS{alertname="AteGressCertificateUnreadable",alertstate="firing"}
+    eval_time: 6m
+    exp_samples:
+    - labels: 'ALERTS{alertname="AteGressCertificateUnreadable",alertstate="firing",severity="critical",job="ate-gress/ate-gress",instance="a",pod="ate-gress-a",version="dev"}'
+      value: 1
+
+- name: TLS failures alert at once, each under its own name
+  interval: 1m
+  # No snapshot series here, so AteGressDown fires too; it is left out below.
+  input_series:
+  - series: ategress_tls_reload_failures_total{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a",file="client_ca_bundle"}
+    values: 0x5 3x10
+  - series: ategress_tls_reload_failures_total{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a",file="credential_bundle"}
+    values: 0x15
+  - series: ategress_tls_handshake_failures_total{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a",reason="client_certificate"}
+    values: 0x5 1x10
+  - series: ategress_tls_handshake_failures_total{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a",reason="client_identity"}
+    values: 0x5 1x10
+  - series: ategress_tls_handshake_failures_total{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a",reason="other"}
+    values: 0x5 1x10
+  promql_expr_test:
+  - expr: count by (alertname, severity) (ALERTS{alertstate="firing",alertname!="AteGressDown"})
+    eval_time: 5m
+    exp_samples: []
+  - expr: count by (alertname, severity) (ALERTS{alertstate="firing",alertname!="AteGressDown"})
+    eval_time: 6m
+    exp_samples:
+    - labels: '{alertname="AteGressTLSReloadFailures",severity="critical"}'
+      value: 1
+    - labels: '{alertname="AteGressGatewayCertificateRejected",severity="critical"}'
+      value: 1
+    - labels: '{alertname="AteGressUnknownClient",severity="warning"}'
+      value: 1
+  # They clear once the failures are 5 minutes old.
+  - expr: count by (alertname, severity) (ALERTS{alertstate="firing",alertname!="AteGressDown"})
+    eval_time: 12m
+    exp_samples: []
+
+- name: a burst of suppressed log lines is not an alert, a sustained flood is
+  interval: 1m
+  input_series:
+  - series: ategress_decision_logs_suppressed_total{job="ate-gress/ate-gress",instance="a",pod="ate-gress-a"}
+    values: 0x5 0+600x5 3000x15
+  - series: ategress_decision_logs_suppressed_total{job="ate-gress/ate-gress",instance="b",pod="ate-gress-b"}
+    values: 0+600x40
+  promql_expr_test:
+  - expr: ALERTS{alertname="AteGressDecisionLogsSuppressed",alertstate="firing"}
+    eval_time: 14m
+    exp_samples: []
+  - expr: ALERTS{alertname="AteGressDecisionLogsSuppressed",alertstate="firing"}
+    eval_time: 17m
+    exp_samples:
+    - labels: 'ALERTS{alertname="AteGressDecisionLogsSuppressed",alertstate="firing",severity="info"}'
+      value: 1

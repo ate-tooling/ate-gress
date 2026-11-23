@@ -6,6 +6,9 @@ ACTIONLINT ?= docker run --rm -v "$(CURDIR):/repo:ro" -w /repo rhysd/actionlint:
 SHELLCHECK ?= docker run --rm -v "$(CURDIR):/mnt:ro" -w /mnt koalaman/shellcheck:v0.11.0
 GOVULNCHECK ?= go run golang.org/x/vuln/cmd/govulncheck@v1.8.0
 ZIZMOR ?= docker run --rm -v "$(CURDIR):/src:ro" -w /src ghcr.io/zizmorcore/zizmor:1.18.0
+# promtool, for the chart's alert rules.
+PROMETHEUS_IMAGE ?= prom/prometheus:v3.8.0
+KUBECONFORM_IMAGE ?= ghcr.io/yannh/kubeconform:v0.7.0
 ENVTEST_K8S_VERSION ?= 1.37.0
 ENVTEST ?= go run sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.24
 CHART := charts/ate-gress
@@ -31,6 +34,14 @@ fuzz: ## Run each fuzz target (hack/fuzz.sh list) for FUZZTIME.
 .PHONY: bench
 bench: ## Benchmarks for the request path.
 	go test -run='^$$' -bench=. -benchmem ./internal/pathmatch ./internal/identity ./internal/policy ./internal/loglimit ./internal/extproc
+
+# LOAD_POLICIES, LOAD_RATES, LOAD_DURATION, LOAD_GOMAXPROCS, LOAD_CONNS and
+# LOAD_OUT tune it; test/load/load_test.go describes them.
+.PHONY: load-test
+load-test: ## Measure one replica's throughput, latency, CPU and memory (minutes; docs/sizing.md).
+	KUBEBUILDER_ASSETS="$$($(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(CURDIR)/bin/envtest -p path)" \
+		go test -count=1 -tags=load -run=TestLoad -v -timeout=60m ./test/load
+
 
 # The Envoy that Substrate's egress gateway ships: the last FROM line of
 # cmd/dataplane/envoy/Dockerfile in Substrate, verbatim.
@@ -58,6 +69,15 @@ lint:
 	$(ACTIONLINT)
 	$(SHELLCHECK) hack/*.sh
 	helm lint $(CHART)
+	PROMETHEUS_IMAGE=$(PROMETHEUS_IMAGE) hack/test-rules.sh
+
+.PHONY: test-rules
+test-rules: ## Check the chart's alert rules with promtool (Docker); part of lint.
+	PROMETHEUS_IMAGE=$(PROMETHEUS_IMAGE) hack/test-rules.sh
+
+.PHONY: validate-chart
+validate-chart: ## Validate the chart, every option on, against the Kubernetes and Prometheus Operator schemas (Docker, network).
+	KUBECONFORM_IMAGE=$(KUBECONFORM_IMAGE) hack/validate-chart.sh
 
 .PHONY: lint-workflows
 lint-workflows: ## Audit the GitHub workflows (CI runs the same check).

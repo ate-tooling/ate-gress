@@ -258,7 +258,8 @@ the test-file format, the lint codes, the JSON output and the exit codes.
 | Metrics | Prometheus, on `/metrics`; listed under [Metrics](#metrics) |
 | Logs | JSON. Denials, audits, and the allowed requests of `logAllowed` policies at `INFO`; every decision at `DEBUG`. Header values are never logged, because they may hold an injected credential. At `INFO`, denials and audits are rate-limited for each actor, reason and policy: `--deny-log-burst` lines (default 10), then `--deny-log-rate` lines a second (default 1; `0` disables the limit). The next line logged carries the number dropped as `suppressed` (or `suppressed_untracked`, counted across keys, when more keys are busy than the limiter tracks), and `ategress_decision_logs_suppressed_total` counts them. `logAllowed` records are never dropped, and `ategress_decisions_total` counts every decision |
 | Shutdown | On SIGTERM it goes NOT_SERVING, serves for `--drain-delay` while the gateway's DNS moves on, then drains streams |
-| Scaling | Stateless; every replica serves from its own informer cache. The headless Service lets the gateway balance across replicas |
+| Scaling | Stateless; every replica serves from its own informer cache. The headless Service lets the gateway balance across replicas. Replicas are for availability: one decides tens of thousands of requests a second ([sizing](docs/sizing.md)) |
+| Runbook | [docs/runbook.md](docs/runbook.md): every alert, reading a denial, rolling out a policy, break glass |
 
 [docs/compatibility.md](docs/compatibility.md) says which Substrate and Envoy
 versions ate-gress is tested against, what an upgrade of either can break,
@@ -319,9 +320,11 @@ The gateway fails closed, so these are worth alerting on before they become
 denied egress:
 
 ```promql
-# The serving certificate is not being rotated. Pick a threshold shorter
-# than the time the kubelet rotates ahead of expiry.
-ategress_tls_certificate_expiry_timestamp_seconds - time() < 3600
+# The serving certificate is not being rotated. Substrate's servicedns
+# signer issues 24h certificates and has the kubelet start renewing 30
+# minutes before expiry, so a threshold must be under 1800 or it fires on
+# every rotation.
+ategress_tls_certificate_expiry_timestamp_seconds - time() < 1200
 # The gateway cannot connect.
 increase(ategress_tls_reload_failures_total[5m]) > 0
 increase(ategress_tls_handshake_failures_total{reason="client_certificate"}[5m]) > 0
@@ -332,6 +335,14 @@ max(ategress_snapshot_policies_hash) != min(ategress_snapshot_policies_hash)
 Give the last one a `for:` of a few minutes: replicas disagree for a moment
 on every policy change. The build timestamp cannot stand in for it, because a
 replica that restarts builds a new snapshot from unchanged policies.
+
+The chart has all of these and more, opt-in: `podMonitor.enabled` scrapes
+each replica with a Prometheus Operator PodMonitor, `prometheusRule.enabled`
+adds the alerts, and `grafanaDashboard.enabled` a dashboard for Grafana's
+sidecar. [docs/runbook.md](docs/runbook.md) says what to do for each alert,
+how to read a denial, and how to take ate-gress out of the gateway's path in
+an emergency. [docs/sizing.md](docs/sizing.md) has measured throughput,
+latency, CPU and memory, and what to request.
 
 ### Per-policy decisions
 
@@ -386,7 +397,9 @@ make fuzz         # each fuzz target for FUZZTIME (default 10s)
 make bench        # request-path benchmarks
 make test-envoy   # behind a real Envoy configured like Substrate's gateway (Docker)
 make test-envoy-stable test-envoy-dev   # the same, on the newest stable Envoy and on Envoy's main
-make lint
+make load-test    # one replica's throughput, latency, CPU and memory (docs/sizing.md)
+make lint         # includes promtool tests of the chart's alerts (Docker)
+make validate-chart   # the chart, every option on, against the API and Prometheus Operator schemas (Docker, network)
 make lint-workflows   # zizmor audit of the GitHub workflows (Docker)
 hack/upgrade-kind.sh   # helm upgrade from the last published chart, and rollback, on a throwaway kind cluster
 

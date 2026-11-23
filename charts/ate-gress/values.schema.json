@@ -1,0 +1,696 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ate-gress chart values",
+  "description": "Every value the chart reads. A key that is not here is a typo, and fails the install instead of being ignored.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "global": {
+      "type": "object",
+      "description": "Set by Helm when the chart is a dependency; unused."
+    },
+    "image": {
+      "type": "object",
+      "properties": {
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tag": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^(|sha256:[0-9a-f]{64})$"
+        },
+        "pullPolicy": {
+          "enum": [
+            "Always",
+            "IfNotPresent",
+            "Never"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "imagePullSecrets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ]
+      }
+    },
+    "crds": {
+      "type": "object",
+      "properties": {
+        "install": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "replicas": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "gateway": {
+      "type": "object",
+      "properties": {
+        "namespace": {
+          "type": "string",
+          "minLength": 1
+        },
+        "podLabels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "spiffeIDs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^spiffe://"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "actorTrustDomain": {
+      "type": "string",
+      "minLength": 1
+    },
+    "grpcPort": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535
+    },
+    "metricsPort": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535
+    },
+    "probePort": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535
+    },
+    "logLevel": {
+      "type": "string",
+      "pattern": "^(?i:DEBUG|INFO|WARN|ERROR)([+-][0-9]+)?$",
+      "description": "An slog level."
+    },
+    "denyLogRate": {
+      "type": "number",
+      "minimum": 0
+    },
+    "denyLogBurst": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "drainDelay": {
+      "type": "string",
+      "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))+$",
+      "description": "A Go duration, such as 10s or 1m30s."
+    },
+    "stopTimeout": {
+      "type": "string",
+      "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))+$",
+      "description": "A Go duration, such as 10s or 1m30s."
+    },
+    "podCertificates": {
+      "type": "object",
+      "properties": {
+        "serviceDNSSigner": {
+          "type": "string",
+          "minLength": 1
+        },
+        "podIdentitySigner": {
+          "type": "string",
+          "minLength": 1
+        },
+        "trustBundleLabels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "resources": {
+      "type": "object",
+      "properties": {
+        "requests": {
+          "type": "object"
+        },
+        "limits": {
+          "type": "object"
+        },
+        "claims": {
+          "type": "array"
+        }
+      },
+      "additionalProperties": false
+    },
+    "priorityClassName": {
+      "type": "string"
+    },
+    "podLabels": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "podAnnotations": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "nodeSelector": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "tolerations": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "affinity": {
+      "type": "object"
+    },
+    "topologySpread": {
+      "type": "object",
+      "properties": {
+        "zone": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "podAntiAffinity": {
+      "type": "object",
+      "properties": {
+        "required": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "podDisruptionBudget": {
+      "type": "object",
+      "properties": {
+        "minAvailable": {
+          "type": [
+            "integer",
+            "string"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "networkPolicy": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "metricsFrom": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "metrics": {
+      "type": "object",
+      "properties": {
+        "scrapeAnnotations": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "podMonitor": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "interval": {
+          "type": "string",
+          "pattern": "^(|0|([0-9]+(ms|s|m|h|d|w|y))+)$"
+        },
+        "scrapeTimeout": {
+          "type": "string",
+          "pattern": "^(|0|([0-9]+(ms|s|m|h|d|w|y))+)$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "prometheusRule": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "selector": {
+          "type": "string"
+        },
+        "runbookURL": {
+          "type": "string",
+          "minLength": 1
+        },
+        "additionalLabels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "alerts": {
+          "type": "object",
+          "properties": {
+            "down": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "for": {
+                  "type": "string",
+                  "pattern": "^(0|([0-9]+(ms|s|m|h|d|w|y))+)$",
+                  "description": "A Prometheus duration, such as 5m."
+                },
+                "severity": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "enabled",
+                "for",
+                "severity"
+              ]
+            },
+            "replicasLow": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "for": {
+                  "type": "string",
+                  "pattern": "^(0|([0-9]+(ms|s|m|h|d|w|y))+)$",
+                  "description": "A Prometheus duration, such as 5m."
+                },
+                "severity": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "minReplicas": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "enabled",
+                "for",
+                "severity",
+                "minReplicas"
+              ]
+            },
+            "noSnapshot": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "for": {
+                  "type": "string",
+                  "pattern": "^(0|([0-9]+(ms|s|m|h|d|w|y))+)$",
+                  "description": "A Prometheus duration, such as 5m."
+                },
+                "severity": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "enabled",
+                "for",
+                "severity"
+              ]
+            },
+            "latencyHigh": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "for": {
+                  "type": "string",
+                  "pattern": "^(0|([0-9]+(ms|s|m|h|d|w|y))+)$",
+                  "description": "A Prometheus duration, such as 5m."
+                },
+                "severity": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "thresholdSeconds": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "maximum": 0.262144,
+                  "description": "The histogram's last bucket is 262ms; a quantile never reads above it."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "enabled",
+                "for",
+                "severity",
+                "thresholdSeconds"
+              ]
+            },
+            "denyRateHigh": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "for": {
+                  "type": "string",
+                  "pattern": "^(0|([0-9]+(ms|s|m|h|d|w|y))+)$",
+                  "description": "A Prometheus duration, such as 5m."
+                },
+                "severity": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "ratio": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "maximum": 1
+                },
+                "minRate": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "enabled",
+                "for",
+                "severity",
+                "ratio",
+                "minRate"
+              ]
+            },
+            "gatewayContract": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "for": {
+                  "type": "string",
+                  "pattern": "^(0|([0-9]+(ms|s|m|h|d|w|y))+)$",
+                  "description": "A Prometheus duration, such as 5m."
+                },
+                "severity": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "minRate": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "enabled",
+                "for",
+                "severity",
+                "minRate"
+              ]
+            },
+            "policiesRejected": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "for": {
+                  "type": "string",
+                  "pattern": "^(0|([0-9]+(ms|s|m|h|d|w|y))+)$",
+                  "description": "A Prometheus duration, such as 5m."
+                },
+                "severity": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "enabled",
+                "for",
+                "severity"
+              ]
+            },
+            "policiesDiverged": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "for": {
+                  "type": "string",
+                  "pattern": "^(0|([0-9]+(ms|s|m|h|d|w|y))+)$",
+                  "description": "A Prometheus duration, such as 5m."
+                },
+                "severity": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "enabled",
+                "for",
+                "severity"
+              ]
+            },
+            "certificateExpiry": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "for": {
+                  "type": "string",
+                  "pattern": "^(0|([0-9]+(ms|s|m|h|d|w|y))+)$",
+                  "description": "A Prometheus duration, such as 5m."
+                },
+                "severity": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "thresholdSeconds": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "enabled",
+                "for",
+                "severity",
+                "thresholdSeconds"
+              ]
+            },
+            "certificateUnreadable": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "for": {
+                  "type": "string",
+                  "pattern": "^(0|([0-9]+(ms|s|m|h|d|w|y))+)$",
+                  "description": "A Prometheus duration, such as 5m."
+                },
+                "severity": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "enabled",
+                "for",
+                "severity"
+              ]
+            },
+            "tlsReloadFailures": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "for": {
+                  "type": "string",
+                  "pattern": "^(0|([0-9]+(ms|s|m|h|d|w|y))+)$",
+                  "description": "A Prometheus duration, such as 5m."
+                },
+                "severity": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "enabled",
+                "for",
+                "severity"
+              ]
+            },
+            "gatewayCertificateRejected": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "for": {
+                  "type": "string",
+                  "pattern": "^(0|([0-9]+(ms|s|m|h|d|w|y))+)$",
+                  "description": "A Prometheus duration, such as 5m."
+                },
+                "severity": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "enabled",
+                "for",
+                "severity"
+              ]
+            },
+            "unknownClient": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "for": {
+                  "type": "string",
+                  "pattern": "^(0|([0-9]+(ms|s|m|h|d|w|y))+)$",
+                  "description": "A Prometheus duration, such as 5m."
+                },
+                "severity": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "enabled",
+                "for",
+                "severity"
+              ]
+            },
+            "logsSuppressed": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "for": {
+                  "type": "string",
+                  "pattern": "^(0|([0-9]+(ms|s|m|h|d|w|y))+)$",
+                  "description": "A Prometheus duration, such as 5m."
+                },
+                "severity": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "enabled",
+                "for",
+                "severity"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "grafanaDashboard": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "annotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "rbac": {
+      "type": "object",
+      "properties": {
+        "aggregateClusterRoles": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -35,6 +35,7 @@ jobs:
     # Regenerates code, CRD, and RBAC and fails if they are stale, then lints
     # and runs the unit and envtest suites.
     - run: make verify
+    - run: make validate-chart
     - run: make vulncheck
 
   workflows:

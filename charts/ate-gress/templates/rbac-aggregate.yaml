@@ -1,0 +1,34 @@
+{{- if .Values.rbac.aggregateClusterRoles }}
+# Read access to policies and their status, for anyone who can view the
+# cluster. Kubernetes aggregates view into edit, and edit into admin; the
+# other two labels say so here instead of relying on it.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "ate-gress.name" . }}-policy-view
+  labels:
+    {{- include "ate-gress.labels" . | nindent 4 }}
+    rbac.authorization.k8s.io/aggregate-to-view: "true"
+    rbac.authorization.k8s.io/aggregate-to-edit: "true"
+    rbac.authorization.k8s.io/aggregate-to-admin: "true"
+rules:
+- apiGroups: [ategress.ate-tooling.github.io]
+  resources: [egressroutepolicies, egressroutepolicies/status]
+  verbs: [get, list, watch]
+---
+# Write access, for admin only. A policy is cluster-scoped and decides what
+# the actors of every atespace may reach, and a mistake in one denies their
+# egress, so it is not something edit should carry. Nobody is given the
+# status subresource: ate-gress writes it.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "ate-gress.name" . }}-policy-admin
+  labels:
+    {{- include "ate-gress.labels" . | nindent 4 }}
+    rbac.authorization.k8s.io/aggregate-to-admin: "true"
+rules:
+- apiGroups: [ategress.ate-tooling.github.io]
+  resources: [egressroutepolicies]
+  verbs: [create, update, patch, delete, deletecollection]
+{{- end }}
