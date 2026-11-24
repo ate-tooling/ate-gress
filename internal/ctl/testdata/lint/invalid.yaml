@@ -1,0 +1,31 @@
+# Policies the API server or the compiler would reject.
+apiVersion: ategress.ate-tooling.github.io/v1alpha1
+kind: EgressRoutePolicy
+metadata:
+  name: bad-template
+spec:
+  hosts:
+  - host: api.example.com
+    routes:
+    - methods: [GET]
+      paths: [/repos/**/pulls]
+---
+apiVersion: ategress.ate-tooling.github.io/v1alpha1
+kind: EgressRoutePolicy
+metadata:
+  name: listed-twice
+spec:
+  hosts:
+  - host: api.example.com
+    routes:
+    - methods: [GET, GET]
+      paths: [/a, /b, /a]
+---
+apiVersion: ategress.ate-tooling.github.io/v1alpha1
+kind: EgressRoutePolicy
+metadata:
+  name: misspelled-field
+spec:
+  enforcmentMode: Audit
+  hosts:
+  - host: api.example.com

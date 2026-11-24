@@ -27,8 +27,9 @@
 | A forged or ambiguous identity | Exact `worker-for-actor` form in the configured trust domain; conflicting attributes are denied | `TestParse`, `FuzzParse`, `TestProcessRequestHeaders` |
 | Something other than the gateway calling ate-gress | mTLS 1.3 with client-certificate verification against the podidentity bundle, plus a pinned SPIFFE URI SAN; NetworkPolicy | `TestServer`, `TestProcessRequiresGatewayCertificate` |
 | ate-gress down or slow, to fail open | The filter's `failure_mode_allow: false`; ate-gress not ready before its first snapshot | `test/envoy` "fails closed", `TestProcessNotReady` |
-| A malformed policy widening access | Schema validation at admission; the compiler re-validates and excludes failures, which can only remove allows | `TestSchemaRejects`, `TestCompileRejects`, `FuzzSchemaAgreesWithCompiler` |
+| A malformed policy widening access, by what it allows or by no longer claiming its hosts | Schema validation at admission; the compiler re-validates. A policy it rejects allows nothing and still claims its hosts for its actors, so a rejection cannot turn a denial into an allow. What it cannot read, it reads as denying more: an unknown mode is `Enforce`, and a selector list with a bad glob selects everyone | `TestSchemaRejects`, `TestCompileRejects`, `TestRejectedPolicyStillClaims`, `TestRejectedPolicyClaims`, `FuzzDecide` (every policy broken in each way the compiler rejects), `TestStatusRejected`, `FuzzSchemaAgreesWithCompiler` |
 | An Audit policy widening an Enforce policy | Audit routes never allow on a host an Enforce policy claims | `TestDecideEnforceOutranksAudit` |
+| Log flooding: an actor repeating denied requests, to run up log volume or bury other actors' denials | Denial and audit logs are rate-limited by actor, outcome, reason and policy, none of which the actor can vary freely; path and authority are not in the key. Denials made before an identity is parsed share one key per reason, so a made-up identity earns nothing. The limiter's table is capped, and keys beyond the cap share one bucket. Dropped lines are counted on the next line logged and in `ategress_decision_logs_suppressed_total` | `TestDecisionLogLimit`, `TestDecisionLogLimitKeys`, `TestDecisionLogLimitBeforeIdentity`, `TestDecisionLogLimitBound`, `internal/loglimit` |
 | Credential leakage via logs | No header values logged, including for `logAllowed`; the path is logged without its query | `TestDecisionLogOmitsHeaderValues`, `TestDecisionLogLevels` |
 
 ## Residual risk
@@ -41,6 +42,15 @@
   from encoding data into the paths it is allowed to request.
 - **Hosts on `tls_passthrough` rules.** Their traffic never reaches
   ate-gress.
+- **A rejected policy's unreadable hosts.** A rejected policy claims every
+  host it lists that a request could name. A host written in a form this
+  version cannot read as a hostname, such as a wildcard, is not claimed, and
+  neither is anything by a policy with no hosts at all.
+- **A rejected policy denies.** Failing closed means a policy that stops
+  compiling, most likely after a rollback, locks its actors out of its hosts
+  until it is fixed or deleted. The `Accepted` condition, the
+  `ategress_policies{state="rejected"}` gauge and the `invalid_policy` deny
+  reason are there to make that visible at once.
 - **Extension point is experimental.** Substrate may change it. The Envoy
   integration test pins the filter and cluster configuration it is built
   against.

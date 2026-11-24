@@ -1,0 +1,34 @@
+{{- if .Values.podMonitor.enabled }}
+# Scrapes each replica on its metrics port. Prometheus names the job
+# <namespace>/<name>, which is what the alert rules select by default.
+#
+# The NetworkPolicy has to let Prometheus reach that port. It does while
+# networkPolicy.metricsFrom is empty; if you list peers there, list
+# Prometheus among them.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "ate-gress.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ate-gress.labels" . | nindent 4 }}
+    {{- with .Values.podMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "ate-gress.selectorLabels" . | nindent 6 }}
+  namespaceSelector:
+    matchNames:
+    - {{ .Release.Namespace }}
+  podMetricsEndpoints:
+  - port: metrics
+    path: /metrics
+    {{- with .Values.podMonitor.interval }}
+    interval: {{ . }}
+    {{- end }}
+    {{- with .Values.podMonitor.scrapeTimeout }}
+    scrapeTimeout: {{ . }}
+    {{- end }}
+{{- end }}

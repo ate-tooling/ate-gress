@@ -1,0 +1,119 @@
+# One Amazon S3 bucket, "acme-data" in us-east-1: actors in the research
+# atespace may read it, actors in the ingest atespace may also write and
+# delete objects, and nobody may change the bucket itself.
+#
+# READ THIS FIRST: ate-gress matches hosts exactly, and S3 puts the bucket in
+# the hostname. These policies restrict what is done to acme-data. They do
+# not, and cannot, keep an actor away from other buckets: every other bucket
+# is another hostname, and a policy has no host wildcard to claim them with.
+# That is the job of the actors' EgressPolicy. Give it an https rule for
+#
+#   acme-data.s3.us-east-1.amazonaws.com
+#
+# and for no other S3 name: no *.s3.us-east-1.amazonaws.com, and not the
+# path-style endpoint s3.us-east-1.amazonaws.com, where the bucket is the
+# first path segment and every bucket is reachable. The lockdown policy below
+# claims the path-style endpoints and the bucket's legacy name in case a
+# broader rule lets them through, but S3 has more names for a bucket
+# (dual-stack, FIPS, accelerate, access points) than it lists.
+#
+# The IAM policy of the credential the actor signs with is the real boundary.
+# These routes are defense in depth. S3 requests are signed by the client
+# (SigV4), so the credential is not a header the gateway can inject.
+#
+# Request shapes, checked on 2026-11-23 against the S3 documentation:
+#   - https://docs.aws.amazon.com/AmazonS3/latest/userguide/VirtualHosting.html:
+#     virtual-hosted requests are
+#     https://<bucket>.s3.<region>.amazonaws.com/<key>; path-style are
+#     https://s3.<region>.amazonaws.com/<bucket>/<key>; <bucket>.s3.amazonaws.com
+#     is the legacy global endpoint.
+#   - https://docs.aws.amazon.com/AmazonS3/latest/API/: ListObjectsV2 is
+#     GET /?list-type=2; GetBucketPolicy is GET /?policy; PutBucketPolicy is
+#     PUT /?policy; DeleteBucket is DELETE /; DeleteObjects is POST /?delete;
+#     CopyObject is PUT /<key> with an x-amz-copy-source header;
+#     PutObjectAcl is PUT /<key>?acl; CreateMultipartUpload is
+#     POST /<key>?uploads; CompleteMultipartUpload is POST /<key>?uploadId=;
+#     AbortMultipartUpload is DELETE /<key>?uploadId=.
+#
+# S3 tells most operations apart by the query string, which ate-gress does
+# not match. A route therefore allows every operation that shares its method
+# and path:
+#   - GET and HEAD on "/" is ListObjects, and also every bucket-level read:
+#     ?policy, ?acl, ?versioning, ?uploads, ?versions and the rest.
+#   - GET and HEAD on a key is GetObject and HeadObject, and also ?acl,
+#     ?tagging, ?versionId= and the other object-level reads.
+#   - PUT on a key is PutObject, and also PutObjectAcl (which can make an
+#     object public), PutObjectTagging, an upload part, and CopyObject. The
+#     copy source is a header, which ate-gress does not see: an actor can
+#     copy into this bucket from any bucket its credential can read.
+#   - DELETE on a key is DeleteObject, including a named version, and
+#     AbortMultipartUpload.
+#   - POST on a key starts and completes a multipart upload, and is also
+#     RestoreObject and SelectObjectContent.
+#
+# What the write policy does deny is every write to "/": creating or deleting
+# the bucket, and its policy, ACL, lifecycle, versioning and other
+# configuration. It also denies DeleteObjects (POST /?delete), the batch
+# delete that `aws s3 rm --recursive` and SDK helpers use. No route can allow
+# it without allowing every other POST to "/". Delete objects one at a time.
+#
+# Keys these policies cannot allow:
+#   - A key with an empty segment ("a//b"), a "." or ".." segment, a "\" or a
+#     "%": the request is denied with reason "path", whatever the routes.
+#   - A key that ends in "/", such as the "folder" markers the S3 console
+#     creates. "**" never matches a trailing slash, so /** does not cover
+#     them (reason "no_route"). A template ending in "/" does, one depth at a
+#     time: /*/ for "folder/", /*/*/ for "a/b/".
+# Other keys work, including non-ASCII keys, which clients percent-encode.
+#
+# Charts up to 0.1.0-rc.4 serve these as v1alpha1 only; change the apiVersion
+# to apply them there. Nothing else differs.
+---
+# Every actor: the bucket, its legacy name, and the path-style endpoints are
+# claimed, and with no routes, nothing is allowed.
+apiVersion: ategress.ate-tooling.github.io/v1beta1
+kind: EgressRoutePolicy
+metadata:
+  name: s3-acme-data-lockdown
+spec:
+  hosts:
+  - host: acme-data.s3.us-east-1.amazonaws.com
+  - host: acme-data.s3.amazonaws.com
+  - host: s3.us-east-1.amazonaws.com
+  - host: s3.amazonaws.com
+---
+# The research atespace: list the bucket and read objects.
+apiVersion: ategress.ate-tooling.github.io/v1beta1
+kind: EgressRoutePolicy
+metadata:
+  name: s3-acme-data-read
+spec:
+  actorSelector:
+    atespaces: [research]
+  hosts:
+  - host: acme-data.s3.us-east-1.amazonaws.com
+    routes:
+    - methods: [GET, HEAD]
+      paths:
+      - /
+      - /**
+---
+# The ingest atespace: read, and write and delete objects. Nothing that
+# changes the bucket.
+apiVersion: ategress.ate-tooling.github.io/v1beta1
+kind: EgressRoutePolicy
+metadata:
+  name: s3-acme-data-write
+spec:
+  actorSelector:
+    atespaces: [ingest]
+  hosts:
+  - host: acme-data.s3.us-east-1.amazonaws.com
+    routes:
+    - methods: [GET, HEAD]
+      paths:
+      - /
+      - /**
+    # Keys only: "/" is not listed, so no bucket-level write is allowed.
+    - methods: [PUT, POST, DELETE]
+      paths: [/**]

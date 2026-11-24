@@ -1,0 +1,34 @@
+policies: [policies.yaml]
+tests:
+- name: the API is read-only
+  actor: research/agent
+  allow:
+  - GET https://api.example.com/v1/items
+  - request: GET https://api.example.com/v1/items/7?expand=all
+    reason: route
+    policy: api-readonly
+    template: /v1/**
+  - request: GET https://unclaimed.example.org/
+    reason: unclaimed
+  deny:
+  - request: POST https://api.example.com/v1/items
+    reason: no_route
+    policy: api-readonly
+  - request: GET https://api.example.com/v1/../admin
+    reason: path
+  - request: GET https://user@api.example.com/v1/items
+    reason: authority
+- name: files are audited, not enforced
+  actor: research/agent
+  allow:
+  - GET https://files.example.com/public/a.txt
+  audit:
+  - request: GET https://files.example.com/private/a.txt
+    reason: no_route
+    policy: files-audit
+  - request: GET https://files.example.com/public/%2e%2e/private
+    reason: path
+- actor: billing/agent
+  allow:
+  - request: GET https://files.example.com/private/a.txt
+    reason: unclaimed

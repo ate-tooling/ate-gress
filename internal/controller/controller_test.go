@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -308,6 +309,24 @@ func TestStatusRejected(t *testing.T) {
 	if !strings.Contains(c.Message, `"**" must be the last segment`) {
 		t.Errorf("message %q does not say what is wrong", c.Message)
 	}
+	// The message also says what the rejected policy does meanwhile, and the
+	// snapshot does that: the policy's host is denied, not released.
+	const effect = "The policy allows nothing and still claims its hosts: requests to them from the actors it selects are denied"
+	if !strings.Contains(c.Message, effect) {
+		t.Errorf("message %q does not say that the policy's hosts are denied", c.Message)
+	}
+	rep := newReplica(*p)
+	rep.build(t)
+	req := policy.Request{
+		Actor:  identity.Actor{Atespace: "research", Name: "agent-1"},
+		Method: "GET", Authority: "api.github.com", Path: "/repos/acme/widget",
+	}
+	if d := rep.builder.Store.Load().Decide(req); d.Allowed || d.Reason != policy.ReasonInvalidPolicy || d.Policy != "bad" {
+		t.Errorf("the snapshot decides %+v, want denied for the rejected policy", d)
+	}
+	if got := testutil.ToFloat64(rep.builder.Metrics.policies.WithLabelValues("rejected")); got != 1 {
+		t.Errorf("ategress_policies{state=rejected} = %v, want 1", got)
+	}
 
 	// A second reconcile with nothing changed writes nothing.
 	rv := got.ResourceVersion
@@ -319,5 +338,27 @@ func TestStatusRejected(t *testing.T) {
 	}
 	if got.ResourceVersion != rv {
 		t.Error("an unchanged status was rewritten")
+	}
+}
+
+// TestStatusRejectedMessageFits checks that an error too long for a condition
+// message is cut, and what the policy does meanwhile is not.
+func TestStatusRejectedMessageFits(t *testing.T) {
+	p := githubPolicy("long", "/a/**/"+strings.Repeat("b", 2*maxMessage))
+	cl := fake.NewClientBuilder().WithScheme(testScheme).WithObjects(p).WithStatusSubresource(p).Build()
+	r := &StatusReconciler{Client: cl}
+	if _, err := r.Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(p)}); err != nil {
+		t.Fatal(err)
+	}
+	var got v1alpha1.EgressRoutePolicy
+	if err := cl.Get(t.Context(), client.ObjectKeyFromObject(p), &got); err != nil {
+		t.Fatal(err)
+	}
+	c := meta.FindStatusCondition(got.Status.Conditions, v1alpha1.ConditionAccepted)
+	if c == nil || len(c.Message) != maxMessage {
+		t.Fatalf("Accepted condition = %+v, want a message of %d bytes", c, maxMessage)
+	}
+	if !strings.HasSuffix(c.Message, "are denied unless another Enforce policy allows them.") {
+		t.Errorf("message ends %q, want what the policy does meanwhile", c.Message[len(c.Message)-80:])
 	}
 }

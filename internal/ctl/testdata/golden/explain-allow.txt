@@ -1,0 +1,10 @@
+request   GET https://api.github.com/repos/acme/widget/pulls?state=open
+actor     research/agent
+decision  allow
+reason    route: a route matched the method and path
+policy    github-acme-readonly
+template  /repos/acme/*/**
+
+Policies claiming api.github.com for research/agent:
+  github-acme-readonly  Enforce  alone: allow (route, /repos/acme/*/**)
+  github-lockdown       Enforce  alone: deny (no_route)

@@ -1,0 +1,56 @@
+# Runs the real-Envoy integration test (test/envoy) against Envoy versions
+# other than the one Substrate's gateway ships, which the ci workflow tests
+# and a release is gated on:
+#
+#   stable  the newest stable release, pinned by digest in
+#           test/envoy/stable.Dockerfile, where Dependabot updates it. A new
+#           Envoy release is tested on Dependabot's pull request.
+#   dev     envoyproxy/envoy:dev, built from Envoy's main branch. It moves
+#           without a commit here, so it also runs nightly. It is an early
+#           warning, not a gate: on a pull request or a push its failure is
+#           reported but does not fail the run, and nothing is gated on the
+#           nightly run, which does fail.
+name: envoy
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+  - cron: "23 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: envoy-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  envoy:
+    name: Envoy ${{ matrix.envoy }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # A change in Envoy's main branch must not block a pull request here. The
+    # scheduled run has nothing to block, so there the failure shows.
+    continue-on-error: ${{ matrix.envoy == 'dev' && github.event_name != 'schedule' && github.event_name != 'workflow_dispatch' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        envoy: [stable, dev]
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+    - run: make "test-envoy-${ENVOY}"
+      env:
+        ENVOY: ${{ matrix.envoy }}
+    # The dev tag moves; a failure is only useful with the build it was.
+    - if: always() && matrix.envoy == 'dev'
+      run: |
+        docker image inspect envoyproxy/envoy:dev --format '{{index .RepoDigests 0}}' | tee -a "${GITHUB_STEP_SUMMARY}"
+        docker run --rm envoyproxy/envoy:dev --version | tee -a "${GITHUB_STEP_SUMMARY}"

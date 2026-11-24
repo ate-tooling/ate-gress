@@ -1,0 +1,176 @@
+{
+  "passed": 10,
+  "failed": 0,
+  "files": [
+    {
+      "file": "testdata/test/passing.tests.yaml",
+      "policies": [
+        "testdata/test/policies.yaml"
+      ],
+      "invalidPolicies": [],
+      "cases": [
+        {
+          "id": "tests[0].allow[0]",
+          "group": "the API is read-only",
+          "actor": "research/agent",
+          "request": "GET https://api.example.com/v1/items",
+          "want": {
+            "decision": "allow"
+          },
+          "got": {
+            "decision": "allow",
+            "reason": "route",
+            "policy": "api-readonly",
+            "template": "/v1/**"
+          },
+          "passed": true
+        },
+        {
+          "id": "tests[0].allow[1]",
+          "group": "the API is read-only",
+          "actor": "research/agent",
+          "request": "GET https://api.example.com/v1/items/7?expand=all",
+          "want": {
+            "decision": "allow",
+            "reason": "route",
+            "policy": "api-readonly",
+            "template": "/v1/**"
+          },
+          "got": {
+            "decision": "allow",
+            "reason": "route",
+            "policy": "api-readonly",
+            "template": "/v1/**"
+          },
+          "passed": true
+        },
+        {
+          "id": "tests[0].allow[2]",
+          "group": "the API is read-only",
+          "actor": "research/agent",
+          "request": "GET https://unclaimed.example.org/",
+          "want": {
+            "decision": "allow",
+            "reason": "unclaimed"
+          },
+          "got": {
+            "decision": "allow",
+            "reason": "unclaimed"
+          },
+          "passed": true
+        },
+        {
+          "id": "tests[0].deny[0]",
+          "group": "the API is read-only",
+          "actor": "research/agent",
+          "request": "POST https://api.example.com/v1/items",
+          "want": {
+            "decision": "deny",
+            "reason": "no_route",
+            "policy": "api-readonly"
+          },
+          "got": {
+            "decision": "deny",
+            "reason": "no_route",
+            "policy": "api-readonly"
+          },
+          "passed": true
+        },
+        {
+          "id": "tests[0].deny[1]",
+          "group": "the API is read-only",
+          "actor": "research/agent",
+          "request": "GET https://api.example.com/v1/../admin",
+          "want": {
+            "decision": "deny",
+            "reason": "path"
+          },
+          "got": {
+            "decision": "deny",
+            "reason": "path",
+            "policy": "api-readonly"
+          },
+          "passed": true
+        },
+        {
+          "id": "tests[0].deny[2]",
+          "group": "the API is read-only",
+          "actor": "research/agent",
+          "request": "GET https://user@api.example.com/v1/items",
+          "want": {
+            "decision": "deny",
+            "reason": "authority"
+          },
+          "got": {
+            "decision": "deny",
+            "reason": "authority"
+          },
+          "passed": true
+        },
+        {
+          "id": "tests[1].allow[0]",
+          "group": "files are audited, not enforced",
+          "actor": "research/agent",
+          "request": "GET https://files.example.com/public/a.txt",
+          "want": {
+            "decision": "allow"
+          },
+          "got": {
+            "decision": "allow",
+            "reason": "route",
+            "policy": "files-audit",
+            "template": "/public/**"
+          },
+          "passed": true
+        },
+        {
+          "id": "tests[1].audit[0]",
+          "group": "files are audited, not enforced",
+          "actor": "research/agent",
+          "request": "GET https://files.example.com/private/a.txt",
+          "want": {
+            "decision": "audit",
+            "reason": "no_route",
+            "policy": "files-audit"
+          },
+          "got": {
+            "decision": "audit",
+            "reason": "no_route",
+            "policy": "files-audit"
+          },
+          "passed": true
+        },
+        {
+          "id": "tests[1].audit[1]",
+          "group": "files are audited, not enforced",
+          "actor": "research/agent",
+          "request": "GET https://files.example.com/public/%2e%2e/private",
+          "want": {
+            "decision": "audit",
+            "reason": "path"
+          },
+          "got": {
+            "decision": "audit",
+            "reason": "path",
+            "policy": "files-audit"
+          },
+          "passed": true
+        },
+        {
+          "id": "tests[2].allow[0]",
+          "actor": "billing/agent",
+          "request": "GET https://files.example.com/private/a.txt",
+          "want": {
+            "decision": "allow",
+            "reason": "unclaimed"
+          },
+          "got": {
+            "decision": "allow",
+            "reason": "unclaimed"
+          },
+          "passed": true
+        }
+      ]
+    }
+  ]
+}

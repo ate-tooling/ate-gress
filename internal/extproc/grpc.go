@@ -17,7 +17,7 @@ import (
 // the caller marks it SERVING once the first snapshot is in effect.
 func NewGRPCServer(tlsConfig *tls.Config, s *Server) (*grpc.Server, *health.Server) {
 	gs := grpc.NewServer(
-		grpc.Creds(credentials.NewTLS(tlsConfig)),
+		grpc.Creds(countingCredentials{TransportCredentials: credentials.NewTLS(tlsConfig), metrics: s.metrics.transport}),
 		// A client that cannot finish a handshake promptly is not Envoy.
 		grpc.ConnectionTimeout(5*time.Second),
 		// Requests are headers only; nothing legitimate comes near this.

@@ -2,13 +2,15 @@
 #
 #   ghcr.io/<owner>/ate-gress:X.Y.Z         multi-arch image
 #   oci://ghcr.io/<owner>/charts/ate-gress   Helm chart, pinned to that image's digest
-#   GitHub release                           CRD, chart archive, SBOM, checksums
+#   GitHub release                           CRD, chart archive, SBOMs, ategressctl
+#                                            binaries, checksums
 #
 # Every artifact is signed with Sigstore keyless signing (cosign) and carries a
-# GitHub build-provenance attestation; the image also carries an SPDX SBOM
-# attestation. Signatures and attestations are bound to this workflow file and
-# the tag, which is what docs/releasing.md tells consumers to verify. The last
-# job verifies them the same way before the release is considered done.
+# GitHub build-provenance attestation; the image and the ategressctl binaries
+# also carry an SPDX SBOM attestation. Signatures and attestations are bound to
+# this workflow file and the tag, which is what docs/releasing.md tells
+# consumers to verify. The last job verifies them the same way before the
+# release is considered done.
 #
 # Tags are never overwritten: a version whose image already exists fails.
 name: release
@@ -217,9 +219,65 @@ jobs:
         path: ${{ steps.package.outputs.archive }}
         if-no-files-found: error
 
+  # The policy testing CLI, for the platforms policy authors and their CI run
+  # it on. The binaries are release files: the github-release job checksums
+  # them and attests their provenance with the rest. Their SBOM is attested
+  # here, where they are built.
+  cli:
+    name: ategressctl
+    needs: [ci, plan]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write      # Sigstore keyless signing
+      attestations: write  # SBOM attestation
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+        # Nothing a release publishes is built from a cache another run
+        # could have written.
+        cache: false
+    - run: hack/build-ategressctl.sh "${VERSION}" dist
+    # The binary that runs here must be the version it claims and pass the
+    # shipped examples' own tests, so a release never carries one that does
+    # not start.
+    - run: |
+        bin="dist/ategressctl-${VERSION}-linux-amd64"
+        got="$("${bin}" version)"
+        if [[ "${got}" != "${VERSION}" ]]; then
+          echo "::error::${bin} reports version '${got}', want '${VERSION}'"
+          exit 1
+        fi
+        "${bin}" test examples/*.tests.yaml
+    - uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+      with:
+        path: dist
+        # Pinned, for the reason the image's SBOM is.
+        format: spdx-json@2.3
+        output-file: ategressctl-${{ needs.plan.outputs.version }}.spdx.json
+        upload-artifact: false
+        upload-release-assets: false
+    - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+      with:
+        subject-path: dist/ategressctl-*
+        sbom-path: ategressctl-${{ needs.plan.outputs.version }}.spdx.json
+    - run: mv "ategressctl-${VERSION}.spdx.json" dist/
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: cli
+        path: dist/
+        if-no-files-found: error
+
   github-release:
     name: GitHub release
-    needs: [plan, image, chart]
+    needs: [plan, image, chart, cli]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -246,11 +304,18 @@ jobs:
       with:
         name: chart
         path: dist
+    - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        name: cli
+        path: dist
     - run: |
         cp config/crd/ategress.ate-tooling.github.io_egressroutepolicies.yaml \
           "dist/ate-gress-${VERSION}-crds.yaml"
         want="$(printf '%s\n' "ate-gress-${VERSION}-crds.yaml" "ate-gress-${VERSION}.spdx.json" \
-          "ate-gress-${VERSION}.tgz" | LC_ALL=C sort | xargs)"
+          "ate-gress-${VERSION}.tgz" "ategressctl-${VERSION}.spdx.json" \
+          "ategressctl-${VERSION}-linux-amd64" "ategressctl-${VERSION}-linux-arm64" \
+          "ategressctl-${VERSION}-darwin-amd64" "ategressctl-${VERSION}-darwin-arm64" \
+          | LC_ALL=C sort | xargs)"
         got="$(find dist -mindepth 1 -maxdepth 1 -printf '%P\n' | LC_ALL=C sort | xargs)"
         if [[ "${got}" != "${want}" ]]; then
           echo "::error::dist/ holds '${got}', want '${want}'"
@@ -275,6 +340,11 @@ jobs:
 
         Verify the image, chart and files before installing:
         [docs/releasing.md](https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/docs/releasing.md#verifying-a-release).
+
+        ## ategressctl
+
+        \`ategressctl-${VERSION}-<os>-<arch>\` below tests, explains and lints policies offline:
+        [docs/ategressctl.md](https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/docs/ategressctl.md).
 
         NOTES
         flags=(--verify-tag --generate-notes --notes-file "${notes}" --title "${GITHUB_REF_NAME}")

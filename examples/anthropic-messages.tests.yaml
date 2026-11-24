@@ -1,0 +1,81 @@
+# Tests for anthropic-messages.yaml. Run them with:
+#
+#   ategressctl test examples/anthropic-messages.tests.yaml
+#
+# docs/ategressctl.md describes the format.
+policies:
+- anthropic-messages.yaml
+
+tests:
+- name: agents run inference and read the model list
+  actor: agents/agent
+  allow:
+  - request: POST https://api.anthropic.com/v1/messages
+    policy: anthropic-inference
+    template: /v1/messages
+  # The query string is not matched, so the SDKs' beta flag is the same
+  # route.
+  - request: POST https://api.anthropic.com/v1/messages?beta=true
+    template: /v1/messages
+  - request: POST https://api.anthropic.com/v1/messages/count_tokens
+    template: /v1/messages/count_tokens
+  - request: GET https://api.anthropic.com/v1/models
+    template: /v1/models
+  - GET https://api.anthropic.com/v1/models?limit=100
+  - request: GET https://api.anthropic.com/v1/models/claude-opus-5-5
+    template: /v1/models/*
+
+- name: agents cannot keep state, start agents or administer
+  actor: agents/agent
+  deny:
+  - request: GET https://api.anthropic.com/v1/messages
+    reason: no_route
+    policy: anthropic-inference
+  - request: POST https://api.anthropic.com/v1/messages/
+    reason: no_route
+  - request: POST https://api.anthropic.com/V1/messages
+    reason: no_route
+  # Message Batches, Files and Skills keep state in the workspace.
+  - request: POST https://api.anthropic.com/v1/messages/batches
+    reason: no_route
+  - request: GET https://api.anthropic.com/v1/messages/batches
+    reason: no_route
+  - request: GET https://api.anthropic.com/v1/messages/batches/msgbatch_01/results
+    reason: no_route
+  - request: POST https://api.anthropic.com/v1/files
+    reason: no_route
+  - request: GET https://api.anthropic.com/v1/files
+    reason: no_route
+  - request: GET https://api.anthropic.com/v1/files/file_01/content
+    reason: no_route
+  - request: POST https://api.anthropic.com/v1/skills
+    reason: no_route
+  # Managed Agents run outside Substrate.
+  - request: POST https://api.anthropic.com/v1/agents
+    reason: no_route
+  - request: POST https://api.anthropic.com/v1/sessions
+    reason: no_route
+  - request: GET https://api.anthropic.com/v1/sessions/sesn_01/events/stream
+    reason: no_route
+  - request: POST https://api.anthropic.com/v1/environments
+    reason: no_route
+  # The Admin API and the OAuth token exchange.
+  - request: GET https://api.anthropic.com/v1/organizations/users
+    reason: no_route
+  - request: POST https://api.anthropic.com/v1/oauth/token
+    reason: no_route
+  - request: POST https://api.anthropic.com/v1/models
+    reason: no_route
+  - request: DELETE https://api.anthropic.com/v1/models/claude-opus-5-5
+    reason: no_route
+  - request: POST https://api.anthropic.com/v1/messages/../files
+    reason: path
+
+- name: every other atespace is locked out of the API
+  actor: research/agent
+  deny:
+  - request: POST https://api.anthropic.com/v1/messages
+    reason: no_route
+    policy: anthropic-lockdown
+  - request: GET https://api.anthropic.com/v1/models
+    reason: no_route

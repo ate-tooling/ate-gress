@@ -1,0 +1,9 @@
+request   GET https://api.github.com/repos/acme/../other/widget
+actor     research/agent
+decision  deny
+reason    path: the host is claimed for the actor and the path is one an upstream could read differently, such as an encoded slash, a dot segment or an empty segment
+policy    github-acme-readonly (the first policy claiming the host; none allowed the request)
+
+Policies claiming api.github.com for research/agent:
+  github-acme-readonly  Enforce  alone: deny (path)
+  github-lockdown       Enforce  alone: deny (path)

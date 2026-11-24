@@ -1,0 +1,337 @@
+package policyfile
+
+import (
+	"bytes"
+	"fmt"
+	"maps"
+	"os"
+	"path/filepath"
+	"reflect"
+	"slices"
+	"strings"
+	"testing"
+
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/kube-openapi/pkg/validation/spec"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/envtest"
+	"sigs.k8s.io/yaml"
+
+	"github.com/ate-tooling/ate-gress/config/crd"
+	"github.com/ate-tooling/ate-gress/internal/policy"
+)
+
+// apiServer is a client for an envtest API server with the CRD installed, or
+// nil when KUBEBUILDER_ASSETS is not set. `make test` sets it.
+var apiServer client.Client
+
+func TestMain(m *testing.M) {
+	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
+		os.Exit(m.Run())
+	}
+	env := &envtest.Environment{
+		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd")},
+		ErrorIfCRDPathMissing: true,
+	}
+	cfg, err := env.Start()
+	if err != nil {
+		panic(err)
+	}
+	if apiServer, err = client.New(cfg, client.Options{}); err != nil {
+		panic(err)
+	}
+	code := m.Run()
+	if err := env.Stop(); err != nil {
+		panic(err)
+	}
+	os.Exit(code)
+}
+
+func manifest(name, spec string) string {
+	return fmt.Sprintf("apiVersion: ategress.ate-tooling.github.io/v1alpha1\nkind: EgressRoutePolicy\nmetadata:\n  name: %s\nspec:\n%s",
+		name, indent(spec))
+}
+
+func indent(s string) string {
+	lines := strings.Split(strings.Trim(s, "\n"), "\n")
+	for i, l := range lines {
+		lines[i] = "  " + l
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+// route wraps one route's fields into a spec with a single host.
+func route(fields string) string {
+	return "hosts:\n- host: api.github.com\n  routes:\n  - " + strings.ReplaceAll(strings.Trim(fields, "\n"), "\n", "\n    ") + "\n"
+}
+
+func paths(p ...string) string {
+	quoted := make([]string, len(p))
+	for i, s := range p {
+		quoted[i] = fmt.Sprintf("%q", s)
+	}
+	return route("methods: [GET]\npaths: [" + strings.Join(quoted, ", ") + "]")
+}
+
+func hosts(n int) string {
+	var b strings.Builder
+	b.WriteString("hosts:\n")
+	for i := range n {
+		fmt.Fprintf(&b, "- host: h%d.example.com\n", i)
+	}
+	return b.String()
+}
+
+// admissionCases are manifests and whether the API server admits them. The
+// offline validator must reach the same verdict on every one, and
+// TestSchemaAgreesWithAPIServer asks a real API server whether the verdicts
+// written here are right.
+var admissionCases = []struct {
+	name     string
+	manifest string
+	valid    bool
+}{
+	// Valid.
+	{"lockdown", manifest("p", "hosts:\n- host: api.github.com"), true},
+	{"everything set", manifest("p", `
+enforcementMode: Audit
+logAllowed: true
+actorSelector:
+  atespaces: [research, "team-*"]
+  names: ["*"]
+hosts:
+- host: api.github.com
+  routes:
+  - methods: [GET, HEAD]
+    paths: [/repos/acme/*, /repos/acme/*/**, /orgs/acme]
+    caseInsensitive: true
+  - methods: [POST]
+    paths: [/]
+- host: registry-1.docker.io
+  routes:
+  - methods: [GET]
+    paths: [/v2/, /**]
+`), true},
+	{"dotted name", manifest("github.acme-readonly", "hosts:\n- host: api.github.com"), true},
+	{"no routes", manifest("p", "hosts:\n- host: api.github.com\n  routes: []"), true},
+	{"empty selector", manifest("p", "actorSelector: {}\nhosts:\n- host: api.github.com"), true},
+	{"null mode reads as absent", manifest("p", "enforcementMode: null\nhosts:\n- host: api.github.com"), true},
+	{"null selector reads as absent", manifest("p", "actorSelector: null\nhosts:\n- host: api.github.com"), true},
+	{"null routes reads as absent", manifest("p", "hosts:\n- host: api.github.com\n  routes: null"), true},
+	{"32 hosts", manifest("p", hosts(32)), true},
+	{"same path in two routes", manifest("p", "hosts:\n- host: a.example.com\n  routes:\n  - {methods: [GET], paths: [/a]}\n  - {methods: [GET], paths: [/a]}"), true},
+	{"literal of dots", manifest("p", paths("/...", "/a.b", "/.a")), true},
+
+	// Invalid: what the controller's TestSchemaRejects submits.
+	{"no hosts", manifest("p", "hosts: []"), false},
+	{"uppercase host", manifest("p", "hosts:\n- host: API.github.com"), false},
+	{"host with port", manifest("p", "hosts:\n- host: api.github.com:443"), false},
+	{"wildcard host", manifest("p", "hosts:\n- host: \"*.github.com\""), false},
+	{"duplicate host", manifest("p", "hosts:\n- host: api.github.com\n- host: api.github.com"), false},
+	{"bad mode", manifest("p", "enforcementMode: Permissive\nhosts:\n- host: api.github.com"), false},
+	{"lowercase method", manifest("p", route("methods: [get]\npaths: [/a]")), false},
+	{"no methods", manifest("p", route("methods: []\npaths: [/a]")), false},
+	{"no paths", manifest("p", route("methods: [GET]\npaths: []")), false},
+	{"relative path", manifest("p", paths("repos/acme")), false},
+	{"double slash", manifest("p", paths("/repos//acme")), false},
+	{"double trailing slash", manifest("p", paths("/repos/acme//")), false},
+	{"trailing slash after double star", manifest("p", paths("/repos/**/")), false},
+	{"dot-dot", manifest("p", paths("/repos/../acme")), false},
+	{"dot", manifest("p", paths("/repos/./acme")), false},
+	{"percent", manifest("p", paths("/repos/acme%2F")), false},
+	{"double star not last", manifest("p", paths("/repos/**/acme")), false},
+	{"embedded star", manifest("p", paths("/repos/ac*")), false},
+	{"leading embedded star", manifest("p", paths("/repos/*cme")), false},
+	{"triple star", manifest("p", paths("/repos/***")), false},
+	{"query in path", manifest("p", paths("/repos/acme?x=1")), false},
+	{"uppercase glob", manifest("p", "actorSelector: {atespaces: [Research]}\nhosts:\n- host: api.github.com"), false},
+	{"glob with slash", manifest("p", "actorSelector: {names: [a/b]}\nhosts:\n- host: api.github.com"), false},
+
+	// Invalid: structure, types, limits and names.
+	{"no spec", "apiVersion: ategress.ate-tooling.github.io/v1alpha1\nkind: EgressRoutePolicy\nmetadata:\n  name: p\n", false},
+	{"spec without hosts", manifest("p", "enforcementMode: Audit"), false},
+	{"hosts not a list", manifest("p", "hosts: api.github.com"), false},
+	{"host not a string", manifest("p", "hosts:\n- host: 5"), false},
+	{"host missing", manifest("p", "hosts:\n- routes: []"), false},
+	{"route without methods", manifest("p", route("paths: [/a]")), false},
+	{"route without paths", manifest("p", route("methods: [GET]")), false},
+	{"boolean as string", manifest("p", route("methods: [GET]\npaths: [/a]\ncaseInsensitive: \"yes\"")), false},
+	{"logAllowed as string", manifest("p", "logAllowed: \"true\"\nhosts:\n- host: api.github.com"), false},
+	{"null method", manifest("p", route("methods: [null]\npaths: [/a]")), false},
+	{"33 hosts", manifest("p", hosts(33)), false},
+	{"33 routes", manifest("p", "hosts:\n- host: a.example.com\n  routes:\n"+strings.Repeat("  - {methods: [GET], paths: [/a]}\n", 33)), false},
+	{"path too long", manifest("p", paths("/"+strings.Repeat("a", 1024))), false},
+	{"host too long", manifest("p", "hosts:\n- host: "+strings.Repeat("a.", 127)+"a"), false},
+	{"glob too long", manifest("p", "actorSelector: {atespaces: ["+strings.Repeat("a", 64)+"]}\nhosts:\n- host: api.github.com"), false},
+	{"duplicate method", manifest("p", route("methods: [GET, GET]\npaths: [/a]")), false},
+	{"duplicate path", manifest("p", paths("/a", "/b", "/a")), false},
+	{"duplicate glob", manifest("p", "actorSelector: {atespaces: [a, a]}\nhosts:\n- host: api.github.com"), false},
+	{"unknown spec field", manifest("p", "enforcmentMode: Audit\nhosts:\n- host: api.github.com"), false},
+	{"unknown host field", manifest("p", "hosts:\n- host: api.github.com\n  route: []"), false},
+	{"unknown route field", manifest("p", route("methods: [GET]\npaths: [/a]\ncaseSensitive: false")), false},
+	{"wrong case field", manifest("p", "Hosts:\n- host: api.github.com"), false},
+	{"uppercase name", manifest("Policy", "hosts:\n- host: api.github.com"), false},
+	{"name with underscore", manifest("a_b", "hosts:\n- host: api.github.com"), false},
+}
+
+func TestSchema(t *testing.T) {
+	for _, version := range servedVersions(t) {
+		for _, tc := range admissionCases {
+			t.Run(version+"/"+tc.name, func(t *testing.T) {
+				manifest := inVersion(tc.manifest, version)
+				set, err := Load([]string{"-"}, strings.NewReader(manifest))
+				if err != nil {
+					t.Fatal(err)
+				}
+				d := set.Documents[0]
+				if valid := len(d.Invalid) == 0; valid != tc.valid {
+					t.Fatalf("valid = %v (%v), want %v\n%s", valid, d.Invalid, tc.valid, manifest)
+				}
+				// Whatever the schema lets through, the compiler must accept:
+				// otherwise the tool would call valid a policy ate-gress drops.
+				if _, results := policy.Compile(set.Policies()); tc.valid && results[0].Err != nil {
+					t.Errorf("the compiler rejects a policy the schema admits: %v", results[0].Err)
+				}
+			})
+		}
+	}
+}
+
+// servedVersions returns the versions the embedded CRD serves.
+func servedVersions(t *testing.T) []string {
+	t.Helper()
+	all, err := schemas()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return slices.Sorted(maps.Keys(all))
+}
+
+// inVersion rewrites a v1alpha1 manifest to declare version instead.
+func inVersion(manifest, version string) string {
+	return strings.ReplaceAll(manifest, "apiVersion: "+Group+"/v1alpha1", "apiVersion: "+Group+"/"+version)
+}
+
+// TestSchemaAgreesWithAPIServer submits every admission case to a real API
+// server with the CRD installed, as a dry run with kubectl's default strict
+// field validation, and requires the offline verdict to be the server's. It
+// is what stands behind "passes ategressctl, rejected by the API server
+// cannot happen".
+func TestSchemaAgreesWithAPIServer(t *testing.T) {
+	if apiServer == nil {
+		t.Skip("KUBEBUILDER_ASSETS is not set; run through `make test`")
+	}
+	for _, version := range servedVersions(t) {
+		for _, tc := range admissionCases {
+			t.Run(version+"/"+tc.name, func(t *testing.T) {
+				obj := &unstructured.Unstructured{}
+				if err := yaml.Unmarshal([]byte(inVersion(tc.manifest, version)), &obj.Object); err != nil {
+					t.Fatal(err)
+				}
+				err := apiServer.Create(t.Context(), obj, client.DryRunAll, client.FieldValidation("Strict"))
+				if admitted := err == nil; admitted != tc.valid {
+					t.Fatalf("the API server admitted = %v (%v), and the case says valid = %v", admitted, err, tc.valid)
+				}
+			})
+		}
+	}
+}
+
+// TestSchemaAssumptions fails when the CRD gains something validate does not
+// repeat, so that the gap is closed before the tool starts passing policies
+// the API server refuses.
+func TestSchemaAssumptions(t *testing.T) {
+	if bytes.Contains(crd.EgressRoutePolicies, []byte("x-kubernetes-validations")) {
+		t.Error("the CRD has CEL rules, which validate does not evaluate: evaluate them, or the tool will pass policies admission rejects")
+	}
+	all, err := schemas()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Each served version has its own schema, so each must hold on its own.
+	for _, version := range slices.Sorted(maps.Keys(all)) {
+		var defaults []string
+		collectDefaults(all[version], "", &defaults)
+		if want := []string{"spec.enforcementMode: Enforce"}; !slices.Equal(defaults, want) {
+			t.Errorf("%s: the schema's defaults are %q, want %q: validate applies no defaults, which is sound only while a defaulted field is valid when absent", version, defaults, want)
+		}
+	}
+}
+
+// collectDefaults appends "field: value" for every default in s.
+func collectDefaults(s *spec.Schema, path string, out *[]string) {
+	if s == nil {
+		return
+	}
+	if s.Default != nil {
+		*out = append(*out, fmt.Sprintf("%s: %v", path, s.Default))
+	}
+	for _, name := range slices.Sorted(maps.Keys(s.Properties)) {
+		prop := s.Properties[name]
+		collectDefaults(&prop, join(path, name), out)
+	}
+	if s.Items != nil {
+		collectDefaults(s.Items.Schema, path+"[]", out)
+		for i := range s.Items.Schemas {
+			collectDefaults(&s.Items.Schemas[i], path+"[]", out)
+		}
+	}
+	if s.AdditionalProperties != nil {
+		collectDefaults(s.AdditionalProperties.Schema, path+"{}", out)
+	}
+}
+
+// TestVersions checks that every version the CRD serves can be read, and
+// that nothing is read that the CRD does not define.
+func TestVersions(t *testing.T) {
+	served := servedVersions(t)
+	if known := slices.Sorted(maps.Keys(versions)); !slices.Equal(served, known) {
+		t.Errorf("the CRD serves %v and policyfile reads %v: add the missing version to versions", served, known)
+	}
+}
+
+// TestConvert checks that a policy reads the same whichever served version it
+// declares, as it does from the API server, which converts by rewriting the
+// apiVersion alone.
+func TestConvert(t *testing.T) {
+	everything := admissionCases[1]
+	if everything.name != "everything set" {
+		t.Fatalf("admissionCases[1] is %q, want the case that sets every field", everything.name)
+	}
+	want := mustLoad(t, everything.manifest)
+	for _, version := range servedVersions(t) {
+		got := mustLoad(t, inVersion(everything.manifest, version))
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("%s reads as\n%+v\nwant\n%+v", version, got, want)
+		}
+	}
+}
+
+// TestConvertDiverged checks that a field the stored version lacks fails
+// conversion instead of being dropped.
+func TestConvertDiverged(t *testing.T) {
+	type diverged struct {
+		APIVersion string         `json:"apiVersion"`
+		Kind       string         `json:"kind"`
+		Spec       map[string]any `json:"spec"`
+	}
+	_, err := convertNone(diverged{
+		APIVersion: Group + "/v1beta1", Kind: Kind,
+		Spec: map[string]any{"hosts": []any{map[string]any{"host": "a.example.com"}}, "newField": true},
+	})
+	if err == nil || !strings.Contains(err.Error(), "newField") {
+		t.Errorf("convertNone = %v, want an error naming the field v1alpha1 lacks", err)
+	}
+}
+
+func mustLoad(t *testing.T, manifest string) Policy {
+	t.Helper()
+	set, err := Load([]string{"-"}, strings.NewReader(manifest))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !set.Valid() {
+		t.Fatalf("invalid: %v", set.Documents[0].Invalid)
+	}
+	return set.Documents[0].Policy
+}

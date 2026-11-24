@@ -10,6 +10,11 @@ runs [`release.yaml`](../.github/workflows/release.yaml). It publishes:
 | Image, `linux/amd64` and `linux/arm64` | `ghcr.io/ate-tooling/ate-gress:X.Y.Z` (and `:X.Y` for full releases) | cosign, keyless | SLSA build provenance, SPDX SBOM |
 | Helm chart, pinned to the image digest | `oci://ghcr.io/ate-tooling/charts/ate-gress`, version `X.Y.Z` | cosign, keyless | SLSA build provenance |
 | CRD, chart archive, SBOM, `checksums.txt` | the GitHub release | | SLSA build provenance for each file |
+| `ategressctl`, for `linux` and `darwin` on `amd64` and `arm64`, and its SBOM | the GitHub release, as `ategressctl-X.Y.Z-<os>-<arch>` | | SLSA build provenance for each file, SPDX SBOM for each binary |
+
+Release files are not signed with cosign. Their attestations are Sigstore
+bundles all the same: signed with a certificate Fulcio issued to this
+workflow, and recorded in Rekor. `gh attestation verify` checks them.
 
 There is no `latest` tag. Deployments pin a version, and the chart pins the
 image by digest.
@@ -18,17 +23,22 @@ image by digest.
 
 ```
 tag vX.Y.Z
-  ├─ ci            the full CI workflow: lint, unit, race, envtest, fuzz, real Envoy, image build
+  ├─ ci            the full CI workflow: lint, unit, race, envtest, fuzz, real Envoy, image build,
+  │                chart upgrade from the last published version, and rollback to it
   ├─ plan          version from the tag; refuses a version whose image already exists
   ├─ image         buildx multi-arch → push → cosign sign → provenance → syft SBOM → SBOM attestation
   ├─ chart         package with image.digest set → push → cosign sign → provenance
-  ├─ github-release CRD + chart + SBOM + checksums, provenance over the checksums
+  ├─ cli           ategressctl for four platforms → run it → syft SBOM → SBOM attestation
+  ├─ github-release CRD + chart + SBOMs + ategressctl + checksums, provenance over the checksums
   └─ verify        hack/verify-release.sh, the same checks a consumer runs
 ```
 
 Some properties the pipeline guarantees:
 
-- **Gated.** Nothing is published unless the tagged commit passes all of CI.
+- **Gated.** Nothing is published unless the tagged commit passes all of
+  `ci`. The nightly workflows in [ci.md](ci.md) (Substrate end to end,
+  Envoy's `main`, long fuzzing) gate nothing; check that they are green
+  before tagging.
 - **Immutable.** Image tags are never overwritten, and neither are release
   versions: `gh release create` refuses a tag that already has a release.
 - **Least privilege.** The workflow token is read-only. Each job is granted
@@ -37,7 +47,8 @@ Some properties the pipeline guarantees:
   pinned by digest. Dependabot proposes updates, each one at least a week
   after its release.
 - **Reproducible inputs.** Image timestamps come from the commit time
-  (`SOURCE_DATE_EPOCH`). The binary is built with `-trimpath`.
+  (`SOURCE_DATE_EPOCH`). The binaries are built with `-trimpath`, and
+  `ategressctl` without the Go build cache.
 - **Audited.** `zizmor` (pedantic) and `actionlint` check the workflows in CI.
 
 Signing is keyless. There is no long-lived key to leak. Each signature is
@@ -112,6 +123,28 @@ gh release download "v$VERSION" --repo ate-tooling/ate-gress
 sha256sum --check checksums.txt
 gh attestation verify ate-gress-$VERSION-crds.yaml --repo ate-tooling/ate-gress
 ```
+
+For `ategressctl`, the same, pinned to the workflow and tag as the image is.
+The binary is a release file, so `checksums.txt` lists it and its provenance
+is verified like the CRD's:
+
+```sh
+BIN=ategressctl-$VERSION-linux-amd64   # or linux-arm64, darwin-amd64, darwin-arm64
+
+gh attestation verify "$BIN" --repo ate-tooling/ate-gress \
+  --signer-workflow github.com/ate-tooling/ate-gress/.github/workflows/release.yaml \
+  --source-ref "refs/tags/v$VERSION" --deny-self-hosted-runners
+
+# Its SBOM: the Go modules compiled into it.
+gh attestation verify "$BIN" --repo ate-tooling/ate-gress \
+  --predicate-type https://spdx.dev/Document/v2.3 --format json \
+  | jq '.[0].verificationResult.statement.predicate'
+
+chmod +x "$BIN" && "./$BIN" version   # prints $VERSION
+```
+
+GitHub does not keep a file's mode, so the downloaded binary needs the
+`chmod`.
 
 ### Enforcing it in the cluster
 

@@ -1,0 +1,55 @@
+../../examples/github-single-org.tests.yaml
+  research reads acme
+  ok    allow  research/agent  GET https://api.github.com/orgs/acme
+  ok    allow  research/agent  GET https://api.github.com/orgs/acme/repos
+  ok    allow  research/agent  GET https://api.github.com/repos/acme/widget
+  ok    allow  research/agent  GET https://api.github.com/repos/acme/widget/pulls?state=open
+  ok    allow  research/agent  HEAD https://api.github.com/repos/acme/widget/contents/docs/README.md
+  ok    allow  research/agent  GET https://api.github.com/orgs/Acme/repos
+  ok    allow  research/agent  GET https://API.GitHub.com:443/repos/acme/widget
+  ok    allow  research/agent  GET https://api.github.com/repos/acme/widget/issues/7
+  ok    allow  research/agent  GET https://github.com/acme/widget.git/info/refs?service=git-upload-pack
+  ok    allow  research/agent  POST https://github.com/acme/widget.git/git-upload-pack
+  ok    allow  research/agent  GET https://codeload.github.com/acme/widget/tar.gz/refs/heads/main
+  ok    allow  research/agent  GET https://raw.githubusercontent.com/acme/widget/main/README.md
+  research cannot write to acme
+  ok    deny   research/agent  POST https://github.com/acme/widget.git/git-receive-pack
+  ok    deny   research/agent  GET https://github.com/acme/widget.git/info/refs/extra
+  ok    deny   research/agent  PATCH https://api.github.com/repos/acme/widget
+  ok    deny   research/agent  DELETE https://api.github.com/repos/acme/widget
+  ok    deny   research/agent  POST https://api.github.com/repos/acme/widget/issues
+  ok    deny   research/agent  PUT https://api.github.com/repos/acme/widget/contents/README.md
+  research cannot reach another organization
+  ok    deny   research/agent  GET https://api.github.com/repos/other/widget
+  ok    deny   research/agent  GET https://api.github.com/orgs/other
+  ok    deny   research/agent  GET https://api.github.com/orgs/acme-evil/repos
+  ok    deny   research/agent  GET https://github.com/other/widget.git/info/refs?service=git-upload-pack
+  ok    deny   research/agent  POST https://github.com/other/widget.git/git-upload-pack
+  ok    deny   research/agent  GET https://codeload.github.com/other/widget/tar.gz/refs/heads/main
+  ok    deny   research/agent  GET https://raw.githubusercontent.com/other/widget/main/README.md
+  ok    deny   research/agent  GET https://api.github.com/repos/acme/../other/widget
+  ok    deny   research/agent  GET https://api.github.com/repos/acme%2F..%2Fother/widget
+  ok    deny   research/agent  GET https://api.github.com/repos/acme//widget
+  ok    deny   research/agent  GET https://api.github.com/user?x=/repos/acme/widget
+  research cannot use endpoints that name no organization in the path
+  ok    deny   research/agent  POST https://api.github.com/graphql
+  ok    deny   research/agent  GET https://api.github.com/graphql
+  ok    deny   research/agent  GET https://api.github.com/repositories/1
+  ok    deny   research/agent  GET https://api.github.com/search/code?q=org:acme
+  ok    deny   research/agent  GET https://api.github.com/user/repos
+  ok    deny   research/agent  GET https://api.github.com/gists
+  every other atespace is locked out of GitHub
+  ok    deny   billing/agent  GET https://api.github.com/repos/acme/widget
+  ok    deny   billing/agent  GET https://api.github.com/orgs/acme
+  ok    deny   billing/agent  GET https://github.com/acme/widget.git/info/refs?service=git-upload-pack
+  ok    deny   billing/agent  POST https://github.com/acme/widget.git/git-upload-pack
+  ok    deny   billing/agent  GET https://codeload.github.com/acme/widget/tar.gz/refs/heads/main
+  ok    deny   billing/agent  GET https://raw.githubusercontent.com/acme/widget/main/README.md
+  ok    deny   billing/agent  POST https://api.github.com/graphql
+  hosts the policies do not claim are left to Substrate's EgressPolicy
+  ok    allow  research/agent  GET https://proxy.golang.org/github.com/acme/widget/@v/list
+  ok    allow  research/agent  GET https://gist.github.com/acme
+  unclaimed hosts for other atespaces too
+  ok    allow  billing/agent  GET https://proxy.golang.org/github.com/acme/widget/@v/list
+
+45 passed, 0 failed

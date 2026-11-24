@@ -1,0 +1,74 @@
+# Tests for pypi-readonly.yaml. Run them with:
+#
+#   ategressctl test examples/pypi-readonly.tests.yaml
+#
+# docs/ategressctl.md describes the format.
+policies:
+- pypi-readonly.yaml
+
+tests:
+- name: every actor installs from the Simple index
+  actor: research/agent
+  allow:
+  - request: GET https://pypi.org/simple/
+    policy: pypi-readonly
+    template: /simple/
+  - request: GET https://pypi.org/simple/idna/
+    template: /simple/*/
+  - HEAD https://pypi.org/simple/flask-sqlalchemy/
+  # A wheel, and its PEP 658 metadata.
+  - request: GET https://files.pythonhosted.org/packages/58/a2/bb081bab032533a855d44de1d56f8e8426114ff1ba5d1f07a438a0a654f8/idna-3.20-py3-none-any.whl
+    template: /packages/**
+  - GET https://files.pythonhosted.org/packages/58/a2/bb081bab032533a855d44de1d56f8e8426114ff1ba5d1f07a438a0a654f8/idna-3.20-py3-none-any.whl.metadata
+  - HEAD https://files.pythonhosted.org/packages/58/a2/bb081bab032533a855d44de1d56f8e8426114ff1ba5d1f07a438a0a654f8/idna-3.20-py3-none-any.whl
+
+- name: what the policy cannot narrow
+  actor: research/agent
+  allow:
+  # Any project's index page: /simple/*/ is any one segment.
+  - request: GET https://pypi.org/simple/any-project-at-all/
+    template: /simple/*/
+  # Any file, of any project, whose URL the actor knows.
+  - request: GET https://files.pythonhosted.org/packages/00/11/2233/anything-1.0.tar.gz
+    template: /packages/**
+  # Another index is another host, which the policy does not claim.
+  - request: GET https://test.pypi.org/simple/idna/
+    reason: unclaimed
+
+- name: nothing but reading the index and its files
+  actor: research/agent
+  deny:
+  # pip and uv always send the trailing slash.
+  - request: GET https://pypi.org/simple/idna
+    reason: no_route
+    policy: pypi-readonly
+  - request: GET https://pypi.org/simple/idna/extra/
+    reason: no_route
+  - request: POST https://pypi.org/simple/idna/
+    reason: no_route
+  # The JSON API, XML-RPC and account pages.
+  - request: GET https://pypi.org/pypi/idna/json
+    reason: no_route
+  - request: POST https://pypi.org/pypi
+    reason: no_route
+  - request: GET https://pypi.org/account/login/
+    reason: no_route
+  - request: GET https://pypi.org/simple/../account/login/
+    reason: path
+  - request: GET https://files.pythonhosted.org/
+    reason: no_route
+  - request: PUT https://files.pythonhosted.org/packages/58/a2/bb081bab032533a855d44de1d56f8e8426114ff1ba5d1f07a438a0a654f8/idna-3.20-py3-none-any.whl
+    reason: no_route
+  # upload.pypi.org is claimed with no routes.
+  - request: POST https://upload.pypi.org/legacy/
+    reason: no_route
+  - request: GET https://upload.pypi.org/legacy/
+    reason: no_route
+
+- name: the same for every atespace
+  actor: billing/agent
+  allow:
+  - GET https://pypi.org/simple/idna/
+  deny:
+  - request: POST https://upload.pypi.org/legacy/
+    reason: no_route

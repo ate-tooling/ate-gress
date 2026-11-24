@@ -1,0 +1,93 @@
+# Tests for oci-ghcr-pull.yaml. Run them with:
+#
+#   ategressctl test examples/oci-ghcr-pull.tests.yaml
+#
+# docs/ategressctl.md describes the format.
+policies:
+- oci-ghcr-pull.yaml
+
+tests:
+- name: build pulls from acme
+  actor: build/agent
+  allow:
+  - request: GET https://ghcr.io/v2/
+    policy: ghcr-acme-pull
+    template: /v2/
+  - request: GET https://ghcr.io/token?service=ghcr.io&scope=repository:acme/app:pull
+    template: /token
+  - request: GET https://ghcr.io/v2/acme/app/manifests/v1.2.3
+    template: /v2/acme/*/manifests/*
+  - HEAD https://ghcr.io/v2/acme/app/manifests/sha256:a0103553329c8a010ed68a1143bf9126b0f1977fec308953e9068a9722790d9d
+  - request: GET https://ghcr.io/v2/acme/app/blobs/sha256:a0103553329c8a010ed68a1143bf9126b0f1977fec308953e9068a9722790d9d
+    template: /v2/acme/*/blobs/*
+  - GET https://ghcr.io/v2/acme/app/tags/list?n=100
+  - GET https://ghcr.io/v2/acme/app/referrers/sha256:a0103553329c8a010ed68a1143bf9126b0f1977fec308953e9068a9722790d9d
+  # Where ghcr.io redirects a blob download.
+  - request: GET https://pkg-containers.githubusercontent.com/ghcr1/blobs/sha256:a0103553329c8a010ed68a1143bf9126b0f1977fec308953e9068a9722790d9d?se=2026-11-23T12%3A00%3A00Z&sig=abc
+    policy: ghcr-acme-pull
+    template: /ghcr1/blobs/*
+
+- name: what the policies cannot check
+  actor: build/agent
+  allow:
+  # The token scope is in the query, which is not matched: a token for
+  # another repository, or to push, is still handed out.
+  - request: GET https://ghcr.io/token?service=ghcr.io&scope=repository:other/app:pull,push
+    template: /token
+
+- name: build cannot leave acme or write
+  actor: build/agent
+  deny:
+  - request: GET https://ghcr.io/v2
+    reason: no_route
+    policy: ghcr-acme-pull
+  - request: GET https://ghcr.io/v2/_catalog
+    reason: no_route
+  - request: GET https://ghcr.io/v2/other/app/manifests/v1.2.3
+    reason: no_route
+  - request: GET https://ghcr.io/v2/other/app/blobs/sha256:a0103553329c8a010ed68a1143bf9126b0f1977fec308953e9068a9722790d9d
+    reason: no_route
+  - request: GET https://ghcr.io/v2/acme-evil/app/manifests/v1.2.3
+    reason: no_route
+  - request: GET https://ghcr.io/v2/ACME/app/manifests/v1.2.3
+    reason: no_route
+  # A deeper repository name needs its own templates.
+  - request: GET https://ghcr.io/v2/acme/team/app/manifests/v1.2.3
+    reason: no_route
+  - request: GET https://ghcr.io/v2/acme/app/../../other/app/manifests/v1.2.3
+    reason: path
+  - request: GET https://ghcr.io/v2/acme%2f..%2fother/app/manifests/v1.2.3
+    reason: path
+  # Push, cross-repository mount, and delete.
+  - request: POST https://ghcr.io/v2/acme/app/blobs/uploads/
+    reason: no_route
+  - request: POST https://ghcr.io/v2/acme/app/blobs/uploads/?mount=sha256:a0103553329c8a010ed68a1143bf9126b0f1977fec308953e9068a9722790d9d&from=other/app
+    reason: no_route
+  - request: PUT https://ghcr.io/v2/acme/app/manifests/v1.2.3
+    reason: no_route
+  - request: PATCH https://ghcr.io/v2/acme/app/blobs/uploads/4f2b
+    reason: no_route
+  - request: DELETE https://ghcr.io/v2/acme/app/manifests/sha256:a0103553329c8a010ed68a1143bf9126b0f1977fec308953e9068a9722790d9d
+    reason: no_route
+  - request: POST https://ghcr.io/token
+    reason: no_route
+  - request: GET https://pkg-containers.githubusercontent.com/ghcr1/blobs/sha256:a0103553329c8a010ed68a1143bf9126b0f1977fec308953e9068a9722790d9d/extra
+    reason: no_route
+  - request: PUT https://pkg-containers.githubusercontent.com/ghcr1/blobs/sha256:a0103553329c8a010ed68a1143bf9126b0f1977fec308953e9068a9722790d9d
+    reason: no_route
+
+- name: every other atespace is locked out of ghcr.io
+  actor: research/agent
+  deny:
+  - request: GET https://ghcr.io/v2/
+    reason: no_route
+    policy: ghcr-lockdown
+  - request: GET https://ghcr.io/token?service=ghcr.io
+    reason: no_route
+  - request: GET https://ghcr.io/v2/acme/app/manifests/v1.2.3
+    reason: no_route
+  allow:
+  # Only the build policy claims the blob host, so for everyone else it is
+  # left to their EgressPolicy.
+  - request: GET https://pkg-containers.githubusercontent.com/ghcr1/blobs/sha256:a0103553329c8a010ed68a1143bf9126b0f1977fec308953e9068a9722790d9d
+    reason: unclaimed

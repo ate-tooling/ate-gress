@@ -35,3 +35,12 @@ updates:
     interval: weekly
   cooldown:
     default-days: 7
+# The newest stable Envoy that the envoy workflow runs test/envoy against.
+# The Envoy that Substrate's gateway ships (ENVOY_IMAGE in the Makefile)
+# follows Substrate and is moved by hand; see docs/ci.md.
+- package-ecosystem: docker
+  directory: /test/envoy
+  schedule:
+    interval: weekly
+  cooldown:
+    default-days: 7

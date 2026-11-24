@@ -1,0 +1,9 @@
+request   POST https://api.github.com/graphql
+actor     research/agent
+decision  deny
+reason    no_route: the host is claimed for the actor and no route matches the method and path
+policy    github-acme-readonly (the first policy claiming the host; none allowed the request)
+
+Policies claiming api.github.com for research/agent:
+  github-acme-readonly  Enforce  alone: deny (no_route)
+  github-lockdown       Enforce  alone: deny (no_route)

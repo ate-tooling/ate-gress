@@ -1,0 +1,15 @@
+testdata/test/passing.tests.yaml
+  the API is read-only
+  ok    allow  research/agent  GET https://api.example.com/v1/items
+  ok    allow  research/agent  GET https://api.example.com/v1/items/7?expand=all
+  ok    allow  research/agent  GET https://unclaimed.example.org/
+  ok    deny   research/agent  POST https://api.example.com/v1/items
+  ok    deny   research/agent  GET https://api.example.com/v1/../admin
+  ok    deny   research/agent  GET https://user@api.example.com/v1/items
+  files are audited, not enforced
+  ok    allow  research/agent  GET https://files.example.com/public/a.txt
+  ok    audit  research/agent  GET https://files.example.com/private/a.txt
+  ok    audit  research/agent  GET https://files.example.com/public/%2e%2e/private
+  ok    allow  billing/agent  GET https://files.example.com/private/a.txt
+
+10 passed, 0 failed

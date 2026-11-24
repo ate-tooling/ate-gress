@@ -6,6 +6,9 @@ ACTIONLINT ?= docker run --rm -v "$(CURDIR):/repo:ro" -w /repo rhysd/actionlint:
 SHELLCHECK ?= docker run --rm -v "$(CURDIR):/mnt:ro" -w /mnt koalaman/shellcheck:v0.11.0
 GOVULNCHECK ?= go run golang.org/x/vuln/cmd/govulncheck@v1.8.0
 ZIZMOR ?= docker run --rm -v "$(CURDIR):/src:ro" -w /src ghcr.io/zizmorcore/zizmor:1.18.0
+# promtool, for the chart's alert rules.
+PROMETHEUS_IMAGE ?= prom/prometheus:v3.8.0
+KUBECONFORM_IMAGE ?= ghcr.io/yannh/kubeconform:v0.7.0
 ENVTEST_K8S_VERSION ?= 1.37.0
 ENVTEST ?= go run sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.24
 CHART := charts/ate-gress
@@ -16,7 +19,7 @@ FUZZTIME ?= 10s
 generate: ## Regenerate deepcopy code, the CRD, and RBAC.
 	$(CONTROLLER_GEN) object crd rbac:roleName=ate-gress paths=./... \
 		output:crd:artifacts:config=config/crd output:rbac:artifacts:config=config/rbac
-	cp config/crd/*.yaml $(CHART)/crds/
+	hack/generate-chart-crds.sh
 	sed -n '/^rules:/,$$p' config/rbac/role.yaml | tail -n +2 > $(CHART)/files/clusterrole-rules.yaml
 
 .PHONY: test
@@ -25,22 +28,40 @@ test: ## Unit tests, and the controller tests against an envtest API server.
 		go test -race -count=3 -shuffle=on ./...
 
 .PHONY: fuzz
-fuzz: ## Run each fuzz target for FUZZTIME.
-	go test -run='^$$' -fuzz=FuzzCanonicalize -fuzztime=$(FUZZTIME) ./internal/pathmatch
-	go test -run='^$$' -fuzz=FuzzMatch -fuzztime=$(FUZZTIME) ./internal/pathmatch
-	go test -run='^$$' -fuzz=FuzzParse -fuzztime=$(FUZZTIME) ./internal/identity
-	go test -run='^$$' -fuzz=FuzzDecide -fuzztime=$(FUZZTIME) ./internal/policy
-	go test -run='^$$' -fuzz=FuzzSchemaAgreesWithCompiler -fuzztime=$(FUZZTIME) ./internal/policy
+fuzz: ## Run each fuzz target (hack/fuzz.sh list) for FUZZTIME.
+	hack/fuzz.sh all $(FUZZTIME)
 
 .PHONY: bench
 bench: ## Benchmarks for the request path.
-	go test -run='^$$' -bench=. -benchmem ./internal/pathmatch ./internal/identity ./internal/policy ./internal/extproc
+	go test -run='^$$' -bench=. -benchmem ./internal/pathmatch ./internal/identity ./internal/policy ./internal/loglimit ./internal/extproc
 
-ENVOY_IMAGE ?= envoyproxy/envoy:v1.39.5
+# LOAD_POLICIES, LOAD_RATES, LOAD_DURATION, LOAD_GOMAXPROCS, LOAD_CONNS and
+# LOAD_OUT tune it; test/load/load_test.go describes them.
+.PHONY: load-test
+load-test: ## Measure one replica's throughput, latency, CPU and memory (minutes; docs/sizing.md).
+	KUBEBUILDER_ASSETS="$$($(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(CURDIR)/bin/envtest -p path)" \
+		go test -count=1 -tags=load -run=TestLoad -v -timeout=60m ./test/load
+
+
+# The Envoy that Substrate's egress gateway ships: the last FROM line of
+# cmd/dataplane/envoy/Dockerfile in Substrate, verbatim.
+# hack/check-envoy-pin.sh compares the two.
+ENVOY_IMAGE ?= envoyproxy/envoy:v1.39.5@sha256:8fc594a5d85eb76dca24155cfb9208882406873932b20cf33649a0a611194c43
+# The newest stable Envoy, which Dependabot keeps current, and Envoy's main
+# branch build, which is a moving tag on purpose.
+ENVOY_STABLE_IMAGE ?= $(shell sed -n 's/^FROM //p' test/envoy/stable.Dockerfile)
+ENVOY_DEV_IMAGE ?= envoyproxy/envoy:dev
 
 .PHONY: test-envoy
 test-envoy: ## Run ate-gress behind a real Envoy configured like Substrate's egress gateway.
 	ATEGRESS_ENVOY_IMAGE=$(ENVOY_IMAGE) go test -count=1 -tags=envoy ./test/envoy/...
+
+.PHONY: test-envoy-stable test-envoy-dev
+test-envoy-stable: ## The same test against the newest stable Envoy.
+	$(MAKE) test-envoy ENVOY_IMAGE=$(ENVOY_STABLE_IMAGE)
+test-envoy-dev: ## The same test against Envoy's main branch build.
+	docker pull -q $(ENVOY_DEV_IMAGE)
+	$(MAKE) test-envoy ENVOY_IMAGE=$(ENVOY_DEV_IMAGE)
 
 .PHONY: lint
 lint:
@@ -48,6 +69,15 @@ lint:
 	$(ACTIONLINT)
 	$(SHELLCHECK) hack/*.sh
 	helm lint $(CHART)
+	PROMETHEUS_IMAGE=$(PROMETHEUS_IMAGE) hack/test-rules.sh
+
+.PHONY: test-rules
+test-rules: ## Check the chart's alert rules with promtool (Docker); part of lint.
+	PROMETHEUS_IMAGE=$(PROMETHEUS_IMAGE) hack/test-rules.sh
+
+.PHONY: validate-chart
+validate-chart: ## Validate the chart, every option on, against the Kubernetes and Prometheus Operator schemas (Docker, network).
+	KUBECONFORM_IMAGE=$(KUBECONFORM_IMAGE) hack/validate-chart.sh
 
 .PHONY: lint-workflows
 lint-workflows: ## Audit the GitHub workflows (CI runs the same check).
@@ -68,6 +98,10 @@ build:
 
 VERSION ?= dev
 
+.PHONY: build-ategressctl
+build-ategressctl: ## Build the policy testing CLI into bin/ategressctl.
+	CGO_ENABLED=0 go build -trimpath -ldflags="-X main.version=$(VERSION)" -o bin/ategressctl ./cmd/ategressctl
+
 .PHONY: docker-build
 docker-build:
 	docker build --build-arg VERSION=$(VERSION) -t $(IMG) .
@@ -77,6 +111,10 @@ docker-build:
 .PHONY: chart-package
 chart-package: ## Package the chart as a release would: make chart-package VERSION=0.1.0 DIGEST=sha256:...
 	hack/package-chart.sh $(VERSION) $(DIGEST) dist
+
+.PHONY: ategressctl-dist
+ategressctl-dist: ## Build the ategressctl release binaries: make ategressctl-dist VERSION=0.1.0
+	hack/build-ategressctl.sh $(VERSION) dist
 
 .PHONY: verify-release
 verify-release: ## Verify a published release's signatures and attestations: make verify-release VERSION=0.1.0

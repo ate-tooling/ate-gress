@@ -126,7 +126,10 @@ type Route struct {
 }
 
 // ConditionAccepted is True when the policy compiled and is in effect, and
-// False, with the reason, when it was rejected and allows nothing.
+// False when it was rejected. A rejected policy allows nothing and still
+// claims its hosts for the actors it selects, so requests to them are denied
+// unless another Enforce policy allows them. The condition's message says
+// what is wrong and what the policy claims meanwhile.
 const ConditionAccepted = "Accepted"
 
 // Reasons for ConditionAccepted.
@@ -150,6 +153,7 @@ type EgressRoutePolicyStatus struct {
 // EgressRoutePolicy restricts the HTTP routes Substrate actors may reach.
 //
 // +kubebuilder:object:root=true
+// +kubebuilder:storageversion
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster,shortName=erp
 // +kubebuilder:printcolumn:name="Mode",type=string,JSONPath=`.spec.enforcementMode`

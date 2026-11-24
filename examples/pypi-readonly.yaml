@@ -1,0 +1,65 @@
+# Let every actor install from PyPI and nothing else there: read the Simple
+# index and download files. No uploads, no account pages, no JSON or XML-RPC
+# API.
+#
+# The actors' EgressPolicy needs https rules for pypi.org and
+# files.pythonhosted.org, so the gateway terminates TLS and ate-gress sees the
+# request. No credential is involved: this is the public index.
+#
+# Request shapes, checked on 2026-11-23:
+#   - PEP 503 (https://peps.python.org/pep-0503/): the index root is
+#     /simple/, a project is /simple/<normalized-name>/, both end in "/", and
+#     a client must request the normalized name. PEP 691 serves JSON from the
+#     same URLs by content negotiation, so it needs no extra route.
+#   - pip 26.2 was observed sending GET /simple/idna/ to pypi.org, then GET
+#     /packages/58/a2/<hash>/idna-3.20-py3-none-any.whl.metadata (PEP 658)
+#     and the wheel itself to files.pythonhosted.org.
+#   - Uploads go to upload.pypi.org, a different host
+#     (https://docs.pypi.org/api/upload/).
+#
+# What these policies cannot do:
+#   - Limit which packages are installed. A file's path is
+#     /packages/<aa>/<bb>/<hash>/<filename>: the project name is only the
+#     start of the last segment, and a template has no partial-segment
+#     wildcard. You can replace /simple/*/ below with one literal entry per
+#     project, such as /simple/requests/, and pip will then fail for any
+#     other project; but an actor that already knows a file's URL can still
+#     download it.
+#   - Follow the index elsewhere. PEP 503 puts no constraint on where files
+#     are hosted. pypi.org links to files.pythonhosted.org today; if that
+#     changes, or you use a mirror, the new host needs its own entry.
+#   - Stop an actor from encoding data in the paths it requests. See the
+#     threat model's residual risks.
+#
+# Not listed, and so denied on these hosts:
+#   - /simple/<project> without the trailing slash. pypi.org answers it with
+#     a redirect to the slashed URL; pip and uv never send it.
+#   - /pypi/<project>/json (the JSON API), /search, /account/*, /manage/*,
+#     and the XML-RPC endpoint POST /pypi.
+#   - Every method but GET and HEAD.
+#   - Everything on upload.pypi.org, so an EgressPolicy that allows it by a
+#     wildcard still cannot publish.
+#
+# Charts up to 0.1.0-rc.4 serve this as v1alpha1 only; change the apiVersion
+# to apply it there. Nothing else differs.
+---
+apiVersion: ategress.ate-tooling.github.io/v1beta1
+kind: EgressRoutePolicy
+metadata:
+  name: pypi-readonly
+spec:
+  hosts:
+  # The Simple repository API (PEP 503, PEP 691).
+  - host: pypi.org
+    routes:
+    - methods: [GET, HEAD]
+      paths:
+      - /simple/
+      - /simple/*/
+  # Distribution files, and their .metadata siblings (PEP 658).
+  - host: files.pythonhosted.org
+    routes:
+    - methods: [GET, HEAD]
+      paths: [/packages/**]
+  # The upload endpoint: claimed with no routes, so nothing is allowed.
+  - host: upload.pypi.org

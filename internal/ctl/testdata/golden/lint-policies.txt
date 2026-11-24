@@ -1,0 +1,8 @@
+testdata/lint/policies.yaml#2: audit-research: spec.hosts[1]: warning ERP101 (audit-shadowed): never has effect on api.example.com: Enforce policy "enforce-everyone" claims the host for every actor this Audit policy selects, and an Enforce policy always takes precedence, so these routes are never consulted and no audit is ever recorded; its logAllowed still applies
+testdata/lint/policies.yaml#4: audit-prod: spec.hosts[0]: warning ERP102 (audit-partly-shadowed): has no effect on files.example.com for the actors that Enforce policy "enforce-teams" also selects, such as team-prod/a: an Enforce policy always takes precedence there, so these routes are not consulted and no audit is recorded for them
+testdata/lint/policies.yaml#6: routes: spec.hosts[0].routes[0].paths[1]: warning ERP201 (redundant-path): "/v2/library/alpine" is redundant: "/v2/**" in the same route already allows everything it matches for GET, HEAD
+testdata/lint/policies.yaml#6: routes: spec.hosts[0].routes[1].paths[0]: warning ERP201 (redundant-path): "/v2/library/alpine/manifests/latest" is redundant: "/v2/**" (spec.hosts[0].routes[0].paths[0]) already allows everything it matches for GET
+testdata/lint/policies.yaml#6: routes: spec.hosts[0].routes[1].paths[1]: warning ERP201 (redundant-path): "/token" is redundant: "/token" (spec.hosts[0].routes[0].paths[2]) already allows everything it matches for GET
+testdata/lint/policies.yaml#6: routes: spec.hosts[0].routes[2].paths[0]: info ERP202 (overlapping-routes): "/token" is already allowed for GET by "/token" (spec.hosts[0].routes[0].paths[2]); only its other methods add anything
+
+6 policies: 0 errors, 5 warnings, 1 info

@@ -8,6 +8,10 @@
 # Needs cosign, gh (authenticated), helm, docker buildx, and sha256sum or
 # shasum. IMAGE_DIGEST and CHART_DIGEST, when set, are checked instead of
 # resolving the version tags.
+#
+# The ategressctl binaries are release files, checked with the rest: their
+# checksums, their provenance, their SBOM attestation, and, for the one built
+# for this machine, that it runs and reports the release's version.
 set -euo pipefail
 
 version="${1:?usage: $0 <version> [image] [charts] [owner/repo]}"
@@ -75,5 +79,40 @@ while read -r _ file; do
   gh attestation verify "${dir}/${file}" "${attest[@]}" >/dev/null
   echo "${file}: provenance OK"
 done <"${dir}/checksums.txt"
+
+step "ategressctl: every platform is published, with an SBOM"
+# The platforms hack/build-ategressctl.sh builds.
+for platform in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
+  file="ategressctl-${version}-${platform}"
+  # Listed in checksums.txt, so the checksum and provenance checks above
+  # covered it.
+  if ! awk -v f="${file}" '$2 == f { found = 1 } END { exit !found }' "${dir}/checksums.txt"; then
+    echo "the release has no ${file}" >&2
+    exit 1
+  fi
+  gh attestation verify "${dir}/${file}" "${attest[@]}" \
+    --predicate-type https://spdx.dev/Document/v2.3 >/dev/null
+  echo "${file}: SBOM OK"
+done
+
+step "ategressctl: runs and reports its version"
+os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+case "$(uname -m)" in
+  x86_64 | amd64) arch=amd64 ;;
+  arm64 | aarch64) arch=arm64 ;;
+  *) arch="" ;;
+esac
+bin="${dir}/ategressctl-${version}-${os}-${arch}"
+if [[ -f "${bin}" ]]; then
+  chmod +x "${bin}"
+  got="$("${bin}" version)"
+  if [[ "${got}" != "${version}" ]]; then
+    echo "${bin##*/} reports version '${got}', want '${version}'" >&2
+    exit 1
+  fi
+  echo "${bin##*/}: version ${got}"
+else
+  echo "no binary for ${os}/${arch}; skipped"
+fi
 
 printf '\nrelease %s verified\n' "${tag}"

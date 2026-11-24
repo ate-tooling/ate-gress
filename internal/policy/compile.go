@@ -21,6 +21,10 @@ type Snapshot struct {
 	// logHosts holds the hosts claimed by at least one policy with
 	// LogAllowed, so Decide can skip looking for one everywhere else.
 	logHosts map[string]bool
+	// policies names every policy the snapshot was compiled from, rejected
+	// ones too, sorted. A hostPolicy's index points into it, and so do the
+	// tallies a Store keeps beside the snapshot.
+	policies []string
 }
 
 type mode uint8
@@ -31,8 +35,13 @@ const (
 )
 
 type hostPolicy struct {
-	policy     string
-	mode       mode
+	policy string
+	// index is the policy's place in Snapshot.policies.
+	index int
+	mode  mode
+	// rejected is set if the policy did not compile. It then has no routes,
+	// and claims what rejectedClaims says.
+	rejected   bool
 	logAllowed bool
 	selector   selector
 	routes     []route
@@ -66,13 +75,17 @@ func (hp *hostPolicy) match(method, path string) (string, bool) {
 type Result struct {
 	Name       string
 	Generation int64
-	// Err is nil if the policy is in the snapshot, and otherwise says why it
-	// was left out.
+	// Err is nil if the policy is in effect as written, and otherwise says
+	// why it was rejected.
 	Err error
+	// Effect says, for a rejected policy, what it does while it is rejected.
+	Effect string
 }
 
 // Compile compiles policies into a Snapshot. A policy that does not compile is
-// left out, which can only remove allows, and its Result carries the error.
+// rejected: its Result carries the error, it allows nothing, and it still
+// claims its hosts, as rejectedClaims describes. Leaving it out would instead
+// release every host that it alone claimed, and turn denials into allows.
 // Results are in the order of policies.
 func Compile(policies []v1alpha1.EgressRoutePolicy) (*Snapshot, []Result) {
 	s := &Snapshot{hosts: make(map[string][]*hostPolicy), logHosts: make(map[string]bool)}
@@ -83,8 +96,9 @@ func Compile(policies []v1alpha1.EgressRoutePolicy) (*Snapshot, []Result) {
 		hps, err := compilePolicy(p)
 		if err != nil {
 			results[i].Err = err
-			continue
+			hps, results[i].Effect = rejectedClaims(p)
 		}
+		s.policies = append(s.policies, p.Name)
 		for host, hp := range hps {
 			s.hosts[host] = append(s.hosts[host], hp)
 			if hp.logAllowed {
@@ -92,8 +106,13 @@ func Compile(policies []v1alpha1.EgressRoutePolicy) (*Snapshot, []Result) {
 			}
 		}
 	}
+	slices.Sort(s.policies)
+	s.policies = slices.Compact(s.policies)
 	for _, hps := range s.hosts {
 		slices.SortFunc(hps, func(a, b *hostPolicy) int { return strings.Compare(a.policy, b.policy) })
+		for _, hp := range hps {
+			hp.index, _ = slices.BinarySearch(s.policies, hp.policy)
+		}
 	}
 	return s, results
 }
@@ -139,6 +158,68 @@ func compilePolicy(p *v1alpha1.EgressRoutePolicy) (map[string]*hostPolicy, error
 		out[h.Host] = hp
 	}
 	return out, nil
+}
+
+// rejectedClaims is what a policy that did not compile claims, and a sentence
+// or two saying so for its status. The policy keeps its hosts, for its actors,
+// with no routes: it is the lockdown of everything it lists.
+//
+// Whatever part of it cannot be understood is read the way that denies more:
+//
+//   - No route is kept, not even one that compiles, so that a rejected policy
+//     allows nothing rather than some part of what was written.
+//   - A mode that is not Audit is Enforce. A mode this version does not know
+//     may deny, and a misspelled Enforce certainly was meant to.
+//   - A selector list holding a glob that does not compile selects everything,
+//     since the glob may have been meant to select anyone. The other list
+//     still narrows the selector: an actor is selected only when both lists
+//     match, whatever the glob meant.
+//   - A host is claimed under the name a request for it is looked up by, so
+//     "Example.com" and "example.com:443" claim example.com. A host that no
+//     :authority normalizes to, such as "*.example.com", names nothing Decide
+//     could look up, and is not claimed.
+func rejectedClaims(p *v1alpha1.EgressRoutePolicy) (map[string]*hostPolicy, string) {
+	var effect strings.Builder
+	m := modeEnforce
+	switch p.Spec.EnforcementMode {
+	case v1alpha1.EnforcementModeAudit:
+		m = modeAudit
+	case v1alpha1.EnforcementModeEnforce, "":
+	default:
+		effect.WriteString(" Its enforcementMode is read as Enforce.")
+	}
+	var sel selector
+	var err error
+	if sel.atespaces, err = compileGlobs(p.Spec.ActorSelector.Atespaces); err != nil {
+		sel.atespaces = nil
+		effect.WriteString(" Its actorSelector.atespaces is read as selecting every atespace.")
+	}
+	if sel.names, err = compileGlobs(p.Spec.ActorSelector.Names); err != nil {
+		sel.names = nil
+		effect.WriteString(" Its actorSelector.names is read as selecting every name.")
+	}
+	out := make(map[string]*hostPolicy, len(p.Spec.Hosts))
+	unclaimed := 0
+	for _, h := range p.Spec.Hosts {
+		host, ok := normalizeAuthority(h.Host)
+		if !ok {
+			unclaimed++
+			continue
+		}
+		out[host] = &hostPolicy{policy: p.Name, mode: m, rejected: true, logAllowed: p.Spec.LogAllowed, selector: sel}
+	}
+	if unclaimed > 0 {
+		fmt.Fprintf(&effect, " %d of its %d hosts cannot be claimed, because no request could name them.", unclaimed, len(p.Spec.Hosts))
+	}
+	switch {
+	case len(out) == 0:
+		return out, "The policy allows nothing and claims no host, so it has no effect."
+	case m == modeAudit:
+		return out, "The policy allows nothing and still claims its hosts. It is an Audit policy, so it denies nothing: " +
+			"requests to them from the actors it selects are audited unless another policy decides them." + effect.String()
+	}
+	return out, "The policy allows nothing and still claims its hosts: " +
+		"requests to them from the actors it selects are denied unless another Enforce policy allows them." + effect.String()
 }
 
 func compileRoute(r v1alpha1.Route) (route, error) {

@@ -13,3 +13,9 @@ The gateway fails closed: once it is pointed here, its HTTP egress depends on
 ate-gress being up. Policies are EgressRoutePolicy objects:
 
   kubectl get egressroutepolicies
+{{- if and .Values.podMonitor.enabled .Values.networkPolicy.enabled .Values.networkPolicy.metricsFrom }}
+
+networkPolicy.metricsFrom lists the peers that may scrape metrics. Prometheus
+must be one of them, or the PodMonitor's targets are unreachable{{ if .Values.prometheusRule.enabled }} and
+AteGressDown fires{{ end }}.
+{{- end }}
