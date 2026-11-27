@@ -100,6 +100,10 @@ running installation does and need action or attention on upgrade.
   path parameters before resolving dot segments, so such a request matched
   `/public/**` here and reached `/admin` upstream. `%3B` (an encoded `;`) is
   refused too, as are segments that are empty before a `;`.
+- **Operators:** for the same reason, the CRD and the compiler refuse a
+  `paths` template with a segment that is empty, `.` or `..` before its
+  first `;`, such as `/a/..;x`, which no request could match any more. An
+  existing policy with one is rejected and fails closed.
 - **Operators:** the chart's `terminationGracePeriodSeconds` follows
   `drainDelay` and `stopTimeout` (their sum plus 20s) instead of being
   fixed at 40s, so a longer drain is no longer cut short by SIGKILL. The

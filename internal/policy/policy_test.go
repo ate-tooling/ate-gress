@@ -801,7 +801,8 @@ func referencePathOK(p string) bool {
 		segs = segs[:len(segs)-1] // one trailing slash
 	}
 	for _, seg := range segs {
-		if seg == "" || seg == "." || seg == ".." {
+		// What is left of a segment once its ;path-parameters are removed.
+		if name := strings.SplitN(seg, ";", 2)[0]; name == "" || name == "." || name == ".." {
 			return false
 		}
 		for i := 0; i < len(seg); i++ {
@@ -814,7 +815,7 @@ func referencePathOK(p string) bool {
 				if err != nil {
 					return false
 				}
-				if v == '/' || v == '\\' || v == '.' || v == '%' || v < 0x20 || v == 0x7f {
+				if v == '/' || v == '\\' || v == '.' || v == '%' || v == ';' || v < 0x20 || v == 0x7f {
 					return false
 				}
 				i += 2
