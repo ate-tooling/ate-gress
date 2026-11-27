@@ -19,7 +19,8 @@ type PolicyCollector struct {
 	store *policy.Store
 }
 
-// NewPolicyCollector returns a collector for the policies in store.
+// NewPolicyCollector returns a collector that reads store at each scrape, so
+// it follows every Swap without being told.
 func NewPolicyCollector(store *policy.Store) *PolicyCollector {
 	return &PolicyCollector{store: store}
 }

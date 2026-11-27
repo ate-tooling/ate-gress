@@ -16,9 +16,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
+// Group is the API group of EgressRoutePolicy, in every version.
+const Group = "ategress.ate-tooling.github.io"
+
 var (
 	// GroupVersion is the group and version of the EgressRoutePolicy API.
-	GroupVersion = schema.GroupVersion{Group: "ategress.ate-tooling.github.io", Version: "v1alpha1"}
+	GroupVersion = schema.GroupVersion{Group: Group, Version: "v1alpha1"}
 
 	// SchemeBuilder registers the API types with a scheme.
 	SchemeBuilder = runtime.NewSchemeBuilder(addKnownTypes)

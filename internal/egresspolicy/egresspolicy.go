@@ -371,6 +371,20 @@ func (r Rule) match(d destination) (best int, ok bool) {
 	return best, ok
 }
 
+// reachablePorts are the ports r can decide, OtherPorts standing for every
+// port when r has ports.all.
+func (r Rule) reachablePorts() []int {
+	if r.AllPorts {
+		return append(slices.Clone(r.Ports), OtherPorts)
+	}
+	return r.Ports
+}
+
+// matchOn is the Match of r deciding on port, by its pattern p.
+func (r Rule) matchOn(port, p int) Match {
+	return Match{Port: port, Rule: r, Pattern: r.Hostnames[p]}
+}
+
 func (r Rule) matchesPort(port int) bool {
 	if port == OtherPorts {
 		return r.AllPorts
@@ -435,10 +449,7 @@ func (p *Policy) Reach(host string) Reach {
 			continue
 		}
 		matching = append(matching, candidate{r, i})
-		ports = append(ports, r.Ports...)
-		if r.AllPorts {
-			ports = append(ports, OtherPorts)
-		}
+		ports = append(ports, r.reachablePorts()...)
 	}
 	slices.Sort(ports)
 	ports = slices.Compact(ports)
@@ -454,14 +465,14 @@ func (p *Policy) Reach(host string) Reach {
 			if !slices.Contains(protocols, c.rule.Protocol) || !c.rule.matchesPort(port) {
 				continue
 			}
-			if best == nil || beats(c.rule, c.pattern, best.rule, best.pattern) {
+			if best == nil || c.rule.beats(c.pattern, best.rule, best.pattern) {
 				best = c
 			}
 		}
 		if best == nil {
 			return Match{}, false
 		}
-		return Match{Port: port, Rule: best.rule, Pattern: best.rule.Hostnames[best.pattern]}, true
+		return best.rule.matchOn(port, best.pattern), true
 	}
 
 	var reach Reach
@@ -483,11 +494,14 @@ func (p *Policy) Reach(host string) Reach {
 	return reach
 }
 
-func beats(a Rule, ap int, b Rule, bp int) bool {
-	if ra, rb := a.patterns[ap].rank(), b.patterns[bp].rank(); ra != rb {
-		return ra < rb
+// beats reports whether r, matching by its pattern p, decides a host's
+// traffic rather than other, matching by its pattern otherP: the more
+// specific pattern wins, then the rule that lists its ports.
+func (r Rule) beats(p int, other Rule, otherP int) bool {
+	if rr, ro := r.patterns[p].rank(), other.patterns[otherP].rank(); rr != ro {
+		return rr < ro
 	}
-	return !a.AllPorts && b.AllPorts
+	return !r.AllPorts && other.AllPorts
 }
 
 // Seen reports whether ate-gress sees any of the host's traffic.

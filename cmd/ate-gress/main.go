@@ -170,7 +170,7 @@ func run(ctx context.Context, o options, log *slog.Logger) error {
 
 	store := &policy.Store{}
 	server := extproc.NewServer(store, parser, log, extproc.NewMetrics(ctrlmetrics.Registry))
-	gs, hs := extproc.NewGRPCServer(tlsCfg, server)
+	gs, hs := server.GRPCServer(tlsCfg)
 	lis, err := net.Listen("tcp", o.grpcAddress)
 	if err != nil {
 		return err

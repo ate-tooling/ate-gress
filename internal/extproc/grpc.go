@@ -6,18 +6,17 @@ import (
 
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
 )
 
-// NewGRPCServer returns a gRPC server that serves s over mutual TLS, and the
+// GRPCServer returns a gRPC server that serves s over mutual TLS, and the
 // health service registered on it. The health service starts NOT_SERVING;
 // the caller marks it SERVING once the first snapshot is in effect.
-func NewGRPCServer(tlsConfig *tls.Config, s *Server) (*grpc.Server, *health.Server) {
+func (s *Server) GRPCServer(tlsConfig *tls.Config) (*grpc.Server, *health.Server) {
 	gs := grpc.NewServer(
-		grpc.Creds(countingCredentials{TransportCredentials: credentials.NewTLS(tlsConfig), metrics: s.metrics.transport}),
+		grpc.Creds(s.metrics.credentials(tlsConfig)),
 		// A client that cannot finish a handshake promptly is not Envoy.
 		grpc.ConnectionTimeout(5*time.Second),
 		// Requests are headers only; nothing legitimate comes near this.
@@ -37,7 +36,7 @@ func NewGRPCServer(tlsConfig *tls.Config, s *Server) (*grpc.Server, *health.Serv
 	return gs, hs
 }
 
-// SetServing marks hs, as returned by NewGRPCServer, SERVING or NOT_SERVING.
+// SetServing marks hs, as returned by Server.GRPCServer, SERVING or NOT_SERVING.
 func SetServing(hs *health.Server, serving bool) {
 	st := healthpb.HealthCheckResponse_NOT_SERVING
 	if serving {

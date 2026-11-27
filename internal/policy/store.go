@@ -57,17 +57,7 @@ func (s *Store) Live() *Live { return s.current.Load() }
 func (s *Store) Swap(snap *Snapshot) uint64 {
 	s.swapping.Lock()
 	defer s.swapping.Unlock()
-	next := &Live{snap: snap, tallies: make([]*Tally, len(snap.policies))}
-	prev := s.current.Load()
-	for i, name := range snap.policies {
-		if prev != nil {
-			if j, ok := slices.BinarySearch(prev.snap.policies, name); ok {
-				next.tallies[i] = prev.tallies[j]
-				continue
-			}
-		}
-		next.tallies[i] = new(Tally)
-	}
+	next := &Live{snap: snap, tallies: snap.carryTallies(s.current.Load())}
 	gen := s.generation.Add(1)
 	s.current.Store(next)
 	return gen
@@ -83,10 +73,32 @@ func (s *Store) PolicyCounts() []PolicyCounts {
 	if l == nil {
 		return nil
 	}
-	counts := make([]PolicyCounts, len(l.tallies))
-	for i, t := range l.tallies {
+	return l.snap.counts(l.tallies)
+}
+
+// carryTallies returns a tally for each of s's policies, indexed as
+// s.policies is: the tally prev has for a policy of the same name, or a new
+// one. prev may be nil.
+func (s *Snapshot) carryTallies(prev *Live) []*Tally {
+	tallies := make([]*Tally, len(s.policies))
+	for i, name := range s.policies {
+		if prev != nil {
+			if j, ok := slices.BinarySearch(prev.snap.policies, name); ok {
+				tallies[i] = prev.tallies[j]
+				continue
+			}
+		}
+		tallies[i] = new(Tally)
+	}
+	return tallies
+}
+
+// counts names tallies, which are indexed as s.policies is, by policy.
+func (s *Snapshot) counts(tallies []*Tally) []PolicyCounts {
+	counts := make([]PolicyCounts, len(tallies))
+	for i, t := range tallies {
 		counts[i] = PolicyCounts{
-			Policy: l.snap.policies[i],
+			Policy: s.policies[i],
 			Allow:  t.allow.Load(), Deny: t.deny.Load(), Audit: t.audit.Load(),
 		}
 	}

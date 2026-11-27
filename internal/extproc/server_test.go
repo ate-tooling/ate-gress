@@ -70,7 +70,7 @@ func newHarness(t *testing.T) *harness {
 	}
 	h := &harness{store: &policy.Store{}, logs: &bytes.Buffer{}, reg: prometheus.NewRegistry()}
 	log := slog.New(slog.NewJSONHandler(h.logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	gs, hs := NewGRPCServer(tlsCfg, NewServer(h.store, parser, log, NewMetrics(h.reg)))
+	gs, hs := NewServer(h.store, parser, log, NewMetrics(h.reg)).GRPCServer(tlsCfg)
 	h.serving = func(b bool) { SetServing(hs, b) }
 
 	lis := bufconn.Listen(1 << 20)

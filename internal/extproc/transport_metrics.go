@@ -28,33 +28,39 @@ const (
 	handshakeOther = "other"
 )
 
-// transportMetrics describe the gRPC server beneath the request path.
-type transportMetrics struct {
-	streams           prometheus.Gauge
-	handshakeFailures *prometheus.CounterVec
-}
-
-func newTransportMetrics(reg prometheus.Registerer) *transportMetrics {
-	m := &transportMetrics{
-		streams: prometheus.NewGauge(prometheus.GaugeOpts{
-			Name: "ategress_active_streams",
-			Help: "ext_proc streams open. The gateway opens one for each HTTP request.",
-		}),
-		handshakeFailures: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "ategress_tls_handshake_failures_total",
-			Help: "Connections refused in the TLS handshake, by reason (client_identity, client_certificate, other).",
-		}, []string{"reason"}),
-	}
+// registerTransport registers the metrics of the gRPC server beneath the
+// request path with reg.
+func (m *Metrics) registerTransport(reg prometheus.Registerer) {
+	m.streams = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "ategress_active_streams",
+		Help: "ext_proc streams open. The gateway opens one for each HTTP request.",
+	})
+	m.handshakeFailures = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "ategress_tls_handshake_failures_total",
+		Help: "Connections refused in the TLS handshake, by reason (client_identity, client_certificate, other).",
+	}, []string{"reason"})
 	// A failure counter that only appears with the first failure cannot be
 	// told from one that is not exported.
 	for _, reason := range []string{handshakeClientIdentity, handshakeClientCertificate, handshakeOther} {
 		m.handshakeFailures.WithLabelValues(reason)
 	}
 	reg.MustRegister(m.streams, m.handshakeFailures)
-	return m
 }
 
-func (m *transportMetrics) handshakeFailed(err error) {
+// streamOpened counts an ext_proc stream as open until the returned func is
+// called.
+func (m *Metrics) streamOpened() (closed func()) {
+	m.streams.Inc()
+	return m.streams.Dec
+}
+
+// credentials are mutual TLS with tlsConfig, counting the handshakes that
+// fail.
+func (m *Metrics) credentials(tlsConfig *tls.Config) credentials.TransportCredentials {
+	return countingCredentials{TransportCredentials: credentials.NewTLS(tlsConfig), metrics: m}
+}
+
+func (m *Metrics) handshakeFailed(err error) {
 	var unverified *tls.CertificateVerificationError
 	reason := handshakeOther
 	switch {
@@ -72,7 +78,7 @@ func (m *transportMetrics) handshakeFailed(err error) {
 // handshake.
 type countingCredentials struct {
 	credentials.TransportCredentials
-	metrics *transportMetrics
+	metrics *Metrics
 }
 
 func (c countingCredentials) ServerHandshake(raw net.Conn) (net.Conn, credentials.AuthInfo, error) {

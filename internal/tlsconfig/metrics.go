@@ -42,6 +42,12 @@ func (m *metrics) register(reg prometheus.Registerer) error {
 	return reg.Register(m.expiry)
 }
 
+// reloadFailed counts a failure to load file, one of the file label values,
+// when a handshake asked for it.
+func (m *metrics) reloadFailed(file string) {
+	m.reloadFailures.WithLabelValues(file).Inc()
+}
+
 // expiryCollector reports when the serving certificate on disk expires.
 //
 // It reads the credential bundle at each scrape, not at each handshake. The

@@ -105,7 +105,7 @@ func TestEnvoy(t *testing.T) {
 	}
 	var logs bytes.Buffer
 	log := slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	gs, _ := extproc.NewGRPCServer(tlsCfg, extproc.NewServer(store, parser, log, extproc.NewMetrics(prometheus.NewRegistry())))
+	gs, _ := extproc.NewServer(store, parser, log, extproc.NewMetrics(prometheus.NewRegistry())).GRPCServer(tlsCfg)
 	go func() { _ = gs.Serve(lis) }()
 	t.Cleanup(gs.Stop)
 
