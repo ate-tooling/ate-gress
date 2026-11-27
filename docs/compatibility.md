@@ -3,9 +3,8 @@
 What you can rely on across ate-gress releases, and what ate-gress relies on
 in Substrate and Envoy.
 
-ate-gress has not had a stable release. Every version so far is a `0.1.0`
-release candidate, and between two release candidates anything may change.
-The promises below start with `0.1.0`. [CHANGELOG.md](../CHANGELOG.md)
+The promises below start with `0.1.0`. The `0.1.0` release candidates
+before it promised nothing: between two of them anything could change. [CHANGELOG.md](../CHANGELOG.md)
 records every change that affects a running installation, marked
 **Operators**.
 
@@ -142,7 +141,7 @@ against the newest stable Envoy and Envoy's `dev` build as well.
 
 | ate-gress | Substrate | Dataplane |
 |---|---|---|
-| 0.1.0 release candidates | v1.0.0 | Envoy only |
+| 0.1.0 | v1.0.0 | Envoy only |
 
 Nothing else is tested. In particular:
 
