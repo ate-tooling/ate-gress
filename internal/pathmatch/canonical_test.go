@@ -43,6 +43,14 @@ func TestCanonicalize(t *testing.T) {
 		{name: "dot segment", raw: "/repos/./acme", wantErr: ErrDotSegment},
 		{name: "dot-dot segment", raw: "/repos/acme/../evil", wantErr: ErrDotSegment},
 		{name: "trailing dot-dot", raw: "/repos/acme/..", wantErr: ErrDotSegment},
+		// Java servlet containers strip ;path-parameters before resolving dot
+		// segments, so these are ".." and "." upstream.
+		{name: "dot-dot with path parameter", raw: "/public/..;/admin", wantErr: ErrDotSegment},
+		{name: "dot-dot with named path parameter", raw: "/public/..;x=1/admin", wantErr: ErrDotSegment},
+		{name: "dot with path parameter", raw: "/public/.;x/admin", wantErr: ErrDotSegment},
+		{name: "empty segment with path parameter", raw: "/public/;x/admin", wantErr: ErrEmptySegment},
+		{name: "encoded semicolon", raw: "/public/..%3B/admin", wantErr: ErrForbiddenEscape},
+		{name: "encoded semicolon lowercase", raw: "/public/a%3bb", wantErr: ErrForbiddenEscape},
 
 		{name: "backslash", raw: `/repos/acme\..\evil`, wantErr: ErrInvalidByte},
 		{name: "space", raw: "/repos/ac me", wantErr: ErrInvalidByte},

@@ -94,6 +94,18 @@ running installation does and need action or attention on upgrade.
 
 ### Fixed
 
+- **Security:** a path whose segment is a dot segment once its
+  `;path-parameters` are removed, such as `/public/..;/admin`, is now denied
+  with reason `path`. Java servlet containers (Tomcat, Jetty, Spring) strip
+  path parameters before resolving dot segments, so such a request matched
+  `/public/**` here and reached `/admin` upstream. `%3B` (an encoded `;`) is
+  refused too, as are segments that are empty before a `;`.
+- **Operators:** the chart's `terminationGracePeriodSeconds` follows
+  `drainDelay` and `stopTimeout` (their sum plus 20s) instead of being
+  fixed at 40s, so a longer drain is no longer cut short by SIGKILL. The
+  default is still 40s.
+- **Operators:** the chart's schema refuses `denyLogBurst: 0`, which the
+  binary refuses at startup whenever `denyLogRate` is not 0.
 - **Operators, Security:** a rejected policy now fails closed. A policy the
   compiler rejects (after a rollback, or under a CRD older than the binary)
   used to be left out of the snapshot, which released every host it alone

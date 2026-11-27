@@ -71,3 +71,17 @@ runbook_url: {{ printf "%s#%s" $root.Values.prometheusRule.runbookURL (lower (in
 {{- toYaml $affinity -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+The whole seconds in a Go duration as values.schema.json admits it, such as
+10s, 1m30s or 500ms, rounded up.
+*/}}
+{{- define "ate-gress.durationSeconds" -}}
+{{- $units := dict "ns" 0.000000001 "us" 0.000001 "ms" 0.001 "s" 1.0 "m" 60.0 "h" 3600.0 -}}
+{{- $total := 0.0 -}}
+{{- range regexFindAll "[0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h)" . -1 -}}
+{{- $n := regexFind "^[0-9]+(\\.[0-9]+)?" . -}}
+{{- $total = addf $total (mulf (float64 $n) (get $units (trimPrefix $n .))) -}}
+{{- end -}}
+{{- ceil $total | int -}}
+{{- end -}}

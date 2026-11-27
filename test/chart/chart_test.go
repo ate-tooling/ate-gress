@@ -435,10 +435,30 @@ func TestSchema(t *testing.T) {
 		{"--set", "image.digest=latest"},
 		{"--set", "gateway.spiffeIDs[0]=atenet-egress"},
 		{"--set", "drainDelay=10"},
+		{"--set", "denyLogBurst=0"},
 		{"--set", "imagePullSecrets[0].secret=x"},
 	} {
 		if out := renderErr(t, args...); !strings.Contains(out, "values don't meet the specifications of the schema") {
 			t.Errorf("%v: refused, but not by the schema: %s", args, out)
+		}
+	}
+}
+
+// TestTerminationGracePeriod checks that the kubelet waits for the drain and
+// the stop the binary is told to do, plus slack, before it kills the pod.
+func TestTerminationGracePeriod(t *testing.T) {
+	for _, tc := range []struct {
+		drain, stop string
+		want        float64
+	}{
+		{"10s", "10s", 40},
+		{"30s", "15s", 65},
+		{"1m30s", "500ms", 111},
+		{"1.5s", "2h", 7222},
+	} {
+		pod := dig(one(t, render(t, "--set", "drainDelay="+tc.drain, "--set", "stopTimeout="+tc.stop), "Deployment"), "spec", "template", "spec")
+		if got := dig(pod, "terminationGracePeriodSeconds"); got != tc.want {
+			t.Errorf("drainDelay=%s stopTimeout=%s: terminationGracePeriodSeconds = %v, want %v", tc.drain, tc.stop, got, tc.want)
 		}
 	}
 }
