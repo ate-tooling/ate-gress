@@ -147,10 +147,12 @@ spec:
                               or segments that are each "*" or a literal, optionally followed by one
                               trailing "/"; or such segments followed by a last "**". A literal is
                               pchar without "*" or "%", and is not "." or "..": it is either three or
-                              more dots, or has a non-dot character.
+                              more dots, or has a non-dot character. Nor is it empty, ".", or ".."
+                              before its first ";", since servlet containers strip ;path-parameters
+                              before resolving dot segments.
                             items:
                               maxLength: 1024
-                              pattern: ^(/|(/([.]*[A-Za-z0-9_~!$&'()+,;=:@-][A-Za-z0-9_~!$&'()+,;=:@.-]*|[.][.][.]+|[*]))+/?|(/([.]*[A-Za-z0-9_~!$&'()+,;=:@-][A-Za-z0-9_~!$&'()+,;=:@.-]*|[.][.][.]+|[*]))*/[*][*])$
+                              pattern: ^(/|(/(([.]*[A-Za-z0-9_~!$&'()+,=:@-][A-Za-z0-9_~!$&'()+,=:@.-]*|[.][.][.]+)(;[A-Za-z0-9_~!$&'()+,;=:@.-]*)?|[*]))+/?|(/(([.]*[A-Za-z0-9_~!$&'()+,=:@-][A-Za-z0-9_~!$&'()+,=:@.-]*|[.][.][.]+)(;[A-Za-z0-9_~!$&'()+,;=:@.-]*)?|[*]))*/[*][*])$
                               type: string
                             maxItems: 32
                             minItems: 1
@@ -385,10 +387,12 @@ spec:
                               or segments that are each "*" or a literal, optionally followed by one
                               trailing "/"; or such segments followed by a last "**". A literal is
                               pchar without "*" or "%", and is not "." or "..": it is either three or
-                              more dots, or has a non-dot character.
+                              more dots, or has a non-dot character. Nor is it empty, ".", or ".."
+                              before its first ";", since servlet containers strip ;path-parameters
+                              before resolving dot segments.
                             items:
                               maxLength: 1024
-                              pattern: ^(/|(/([.]*[A-Za-z0-9_~!$&'()+,;=:@-][A-Za-z0-9_~!$&'()+,;=:@.-]*|[.][.][.]+|[*]))+/?|(/([.]*[A-Za-z0-9_~!$&'()+,;=:@-][A-Za-z0-9_~!$&'()+,;=:@.-]*|[.][.][.]+|[*]))*/[*][*])$
+                              pattern: ^(/|(/(([.]*[A-Za-z0-9_~!$&'()+,=:@-][A-Za-z0-9_~!$&'()+,=:@.-]*|[.][.][.]+)(;[A-Za-z0-9_~!$&'()+,;=:@.-]*)?|[*]))+/?|(/(([.]*[A-Za-z0-9_~!$&'()+,=:@-][A-Za-z0-9_~!$&'()+,=:@.-]*|[.][.][.]+)(;[A-Za-z0-9_~!$&'()+,;=:@.-]*)?|[*]))*/[*][*])$
                               type: string
                             maxItems: 32
                             minItems: 1

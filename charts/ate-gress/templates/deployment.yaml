@@ -38,7 +38,7 @@ spec:
       priorityClassName: {{ . }}
       {{- end }}
       # drainDelay + stopTimeout, and some slack for the manager to stop.
-      terminationGracePeriodSeconds: 40
+      terminationGracePeriodSeconds: {{ add (include "ate-gress.durationSeconds" .Values.drainDelay) (include "ate-gress.durationSeconds" .Values.stopTimeout) 20 }}
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532

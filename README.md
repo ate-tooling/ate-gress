@@ -143,8 +143,8 @@ spec:
 
 Requests whose path an upstream could read differently from ate-gress are
 denied on claimed hosts instead of being normalized. That covers encoded
-`/`, `\` or `.`, dot segments, empty segments other than one trailing
-`/`, and non-ASCII. See
+`/`, `\`, `.` or `;`, dot segments (also behind path parameters, as in
+`/..;/`), empty segments other than one trailing `/`, and non-ASCII. See
 [the threat model](docs/threat-model.md).
 
 A single trailing slash, as in `/repos/acme/widget/`, is not such a path: it

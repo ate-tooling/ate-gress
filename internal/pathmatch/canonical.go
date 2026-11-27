@@ -6,7 +6,8 @@
 // package is therefore where ambiguous paths are refused. Canonicalize never
 // repairs a path. Anything an upstream could read differently from the way a
 // template reads it (an encoded separator, a dot segment, an empty segment
-// other than a single trailing one) is an error, and the caller denies the
+// other than a single trailing one, a dot segment hidden behind
+// ;path-parameters) is an error, and the caller denies the
 // request.
 package pathmatch
 
@@ -23,7 +24,7 @@ var (
 	ErrDotSegment      = errors.New("path has a dot segment")
 	ErrInvalidByte     = errors.New("path has a byte outside RFC 3986 pchar")
 	ErrMalformedEscape = errors.New("path has a malformed percent-escape")
-	ErrForbiddenEscape = errors.New("path percent-encodes a separator, dot, percent sign, or control byte")
+	ErrForbiddenEscape = errors.New("path percent-encodes a separator, dot, percent sign, semicolon, or control byte")
 )
 
 // Canonicalize returns the path component of raw, the value of an HTTP/2
@@ -34,11 +35,12 @@ var (
 //   - any segment other than the last is empty, so "//" and "/a//b" are
 //     refused. The last may be empty: "/v2/" is accepted, as one trailing
 //     slash after a non-empty segment, but "/v2//" is not;
-//   - any segment is "." or "..";
+//   - any segment is "." or "..", or empty, once a ";" and what follows it
+//     are removed, so "/a/..;x/b" and "/a/;x/b" are refused;
 //   - any byte is not an RFC 3986 pchar or the start of a percent-escape, so
 //     controls, spaces, non-ASCII, "\", and "#" are refused;
-//   - a percent-escape is malformed, or decodes to "/", "\", ".", "%", or a
-//     control byte.
+//   - a percent-escape is malformed, or decodes to "/", "\", ".", "%", ";",
+//     or a control byte.
 //
 // Under these rules, percent-decoding an accepted path once cannot introduce
 // a separator or a dot segment, and a second decode cannot change it. An
@@ -75,7 +77,10 @@ func Canonicalize(raw string) (string, error) {
 }
 
 func checkSegment(seg string) error {
-	switch seg {
+	// Servlet containers (Tomcat, Jetty, Spring) strip a segment's
+	// ;path-parameters before they resolve dot segments, so "..;x" is ".."
+	// to them. Judge the segment by what is left.
+	switch name, _, _ := strings.Cut(seg, ";"); name {
 	case "":
 		return ErrEmptySegment
 	case ".", "..":
@@ -93,7 +98,7 @@ func checkSegment(seg string) error {
 			return ErrMalformedEscape
 		}
 		switch v := unhex(seg[i+1])<<4 | unhex(seg[i+2]); {
-		case v == '/', v == '\\', v == '.', v == '%', v < 0x20, v == 0x7f:
+		case v == '/', v == '\\', v == '.', v == '%', v == ';', v < 0x20, v == 0x7f:
 			return ErrForbiddenEscape
 		}
 		i += 2

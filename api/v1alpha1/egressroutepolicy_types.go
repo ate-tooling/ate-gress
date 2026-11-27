@@ -111,12 +111,14 @@ type Route struct {
 	// or segments that are each "*" or a literal, optionally followed by one
 	// trailing "/"; or such segments followed by a last "**". A literal is
 	// pchar without "*" or "%", and is not "." or "..": it is either three or
-	// more dots, or has a non-dot character.
+	// more dots, or has a non-dot character. Nor is it empty, ".", or ".."
+	// before its first ";", since servlet containers strip ;path-parameters
+	// before resolving dot segments.
 	// +listType=set
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=32
 	// +kubebuilder:validation:items:MaxLength=1024
-	// +kubebuilder:validation:items:Pattern=`^(/|(/([.]*[A-Za-z0-9_~!$&'()+,;=:@-][A-Za-z0-9_~!$&'()+,;=:@.-]*|[.][.][.]+|[*]))+/?|(/([.]*[A-Za-z0-9_~!$&'()+,;=:@-][A-Za-z0-9_~!$&'()+,;=:@.-]*|[.][.][.]+|[*]))*/[*][*])$`
+	// +kubebuilder:validation:items:Pattern=`^(/|(/(([.]*[A-Za-z0-9_~!$&'()+,=:@-][A-Za-z0-9_~!$&'()+,=:@.-]*|[.][.][.]+)(;[A-Za-z0-9_~!$&'()+,;=:@.-]*)?|[*]))+/?|(/(([.]*[A-Za-z0-9_~!$&'()+,=:@-][A-Za-z0-9_~!$&'()+,=:@.-]*|[.][.][.]+)(;[A-Za-z0-9_~!$&'()+,;=:@.-]*)?|[*]))*/[*][*])$`
 	Paths []string `json:"paths"`
 
 	// CaseInsensitive matches literal segments ASCII case-insensitively, for

@@ -387,7 +387,7 @@ The reasons:
 | Reason | Means |
 |---|---|
 | `no_route` | The host is claimed for the actor, and no `Enforce` policy that claims it has a route for this method and path. |
-| `path` | The host is claimed, and the path is one ate-gress will not match because an upstream could read it differently: encoded `/`, `\` or `.`, dot segments, empty segments, non-ASCII. |
+| `path` | The host is claimed, and the path is one ate-gress will not match because an upstream could read it differently: encoded `/`, `\`, `.` or `;`, dot segments (also `..;x`), empty segments, non-ASCII. |
 | `authority` | `:authority` is not a hostname. |
 | `invalid_policy` | (Releases that have it.) The host is claimed only by rejected policies; see [AteGressPoliciesRejected](#ategresspoliciesrejected). |
 | `identity` | No single well-formed actor identity arrived with the request. See [AteGressGatewayContractBroken](#ategressgatewaycontractbroken). |
