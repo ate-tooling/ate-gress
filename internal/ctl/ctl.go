@@ -196,11 +196,7 @@ func loadPolicies(paths []string, stdin io.Reader) (*policies, error) {
 // parser accepts, because a request from any other actor never reaches
 // Decide: the server denies it with reason "identity".
 func parseActor(s string) (identity.Actor, error) {
-	parser, err := identity.NewParser(identity.DefaultTrustDomain)
-	if err != nil {
-		return identity.Actor{}, err
-	}
-	a, err := parser.Parse("spiffe://" + identity.DefaultTrustDomain + "/worker-for-actor/" + s)
+	a, err := identity.ParseActor(s)
 	if err != nil {
 		return identity.Actor{}, fmt.Errorf("actor %q is not <atespace>/<name>, each a lowercase DNS label", s)
 	}

@@ -14,11 +14,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+
+	"github.com/ate-tooling/ate-gress/api/v1alpha1"
 )
 
 var (
 	// GroupVersion is the group and version of the EgressRoutePolicy API.
-	GroupVersion = schema.GroupVersion{Group: "ategress.ate-tooling.github.io", Version: "v1beta1"}
+	GroupVersion = schema.GroupVersion{Group: v1alpha1.Group, Version: "v1beta1"}
 
 	// SchemeBuilder registers the API types with a scheme.
 	SchemeBuilder = runtime.NewSchemeBuilder(addKnownTypes)

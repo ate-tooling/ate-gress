@@ -96,3 +96,17 @@ func FuzzParse(f *testing.F) {
 		}
 	})
 }
+
+func TestParseActorIsTheInverseOfString(t *testing.T) {
+	for _, s := range []string{"team-a/agent-1", "a/b"} {
+		a, err := ParseActor(s)
+		if err != nil || a.String() != s {
+			t.Errorf("ParseActor(%q) = %v, %v; want it back", s, a, err)
+		}
+	}
+	for _, s := range []string{"", "a", "a/", "/b", "a/b/c", "A/b", "a/b.c"} {
+		if _, err := ParseActor(s); err == nil {
+			t.Errorf("ParseActor(%q) accepted it", s)
+		}
+	}
+}

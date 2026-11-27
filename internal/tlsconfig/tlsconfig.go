@@ -64,12 +64,12 @@ func Server(c Config) (*tls.Config, error) {
 		GetConfigForClient: func(*tls.ClientHelloInfo) (*tls.Config, error) {
 			cert, err := loadKeyPair(c.CredentialBundle)
 			if err != nil {
-				m.reloadFailures.WithLabelValues(fileCredentialBundle).Inc()
+				m.reloadFailed(fileCredentialBundle)
 				return nil, err
 			}
 			pool, err := loadPool(c.ClientCAs)
 			if err != nil {
-				m.reloadFailures.WithLabelValues(fileClientCAs).Inc()
+				m.reloadFailed(fileClientCAs)
 				return nil, err
 			}
 			return &tls.Config{

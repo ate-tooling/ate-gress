@@ -25,7 +25,9 @@ type CA struct {
 	key  *ecdsa.PrivateKey
 }
 
-// NewCA returns a new CA named name.
+// NewCA creates a fresh self-signed CA whose subject CommonName is name. It
+// can only sign certificates, is valid from an hour ago to an hour from now,
+// and fails t on any error.
 func NewCA(t testing.TB, name string) *CA {
 	t.Helper()
 	key := newKey(t)

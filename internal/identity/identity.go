@@ -51,7 +51,13 @@ func (p *Parser) Parse(id string) (Actor, error) {
 	if !ok {
 		return Actor{}, ErrMalformed
 	}
-	atespace, name, ok := strings.Cut(rest, "/")
+	return ParseActor(rest)
+}
+
+// ParseActor reads an actor as Actor.String writes it, "<atespace>/<name>".
+// It accepts exactly the actors Parse accepts, and does not allocate.
+func ParseActor(s string) (Actor, error) {
+	atespace, name, ok := strings.Cut(s, "/")
 	if !ok || !isDNSLabel(atespace) || !isDNSLabel(name) {
 		return Actor{}, ErrMalformed
 	}

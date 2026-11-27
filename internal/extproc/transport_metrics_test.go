@@ -11,7 +11,6 @@ import (
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
-	"google.golang.org/grpc/credentials"
 
 	"github.com/ate-tooling/ate-gress/internal/testpki"
 	"github.com/ate-tooling/ate-gress/internal/tlsconfig"
@@ -102,7 +101,7 @@ func TestHandshakeFailuresMetric(t *testing.T) {
 		t.Fatal(err)
 	}
 	reg := prometheus.NewRegistry()
-	creds := countingCredentials{TransportCredentials: credentials.NewTLS(tlsCfg), metrics: NewMetrics(reg).transport}
+	creds := NewMetrics(reg).credentials(tlsCfg)
 
 	// handshake reports whether the server accepted the client.
 	handshake := func(client func(net.Conn)) bool {

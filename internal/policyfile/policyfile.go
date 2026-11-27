@@ -45,7 +45,7 @@ type (
 
 const (
 	// Group is the API group of EgressRoutePolicy.
-	Group = "ategress.ate-tooling.github.io"
+	Group = v1alpha1.Group
 	// Kind is the kind this package reads.
 	Kind     = "EgressRoutePolicy"
 	listKind = "EgressRoutePolicyList"
