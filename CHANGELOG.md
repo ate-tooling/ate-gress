@@ -4,12 +4,14 @@ All notable changes to ate-gress are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Until 0.1.0 is released, every version is a release candidate and anything
-may change between two of them. [docs/compatibility.md](docs/compatibility.md)
-says what is promised after that. Entries marked **Operators** change what a
+Versions before 0.1.0 were release candidates, and anything could change
+between two of them. [docs/compatibility.md](docs/compatibility.md) says what
+is promised from 0.1.0 on. Entries marked **Operators** change what a
 running installation does and need action or attention on upgrade.
 
 ## [Unreleased]
+
+## [0.1.0] - 2026-11-27
 
 ### Added
 
@@ -222,7 +224,8 @@ step, because of the stray release assets fixed in rc.2; use rc.2 or later.
   them.
 - A single-organization GitHub example policy.
 
-[Unreleased]: https://github.com/ate-tooling/ate-gress/compare/v0.1.0-rc.4...HEAD
+[Unreleased]: https://github.com/ate-tooling/ate-gress/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/ate-tooling/ate-gress/compare/v0.1.0-rc.4...v0.1.0
 [0.1.0-rc.4]: https://github.com/ate-tooling/ate-gress/compare/v0.1.0-rc.3...v0.1.0-rc.4
 [0.1.0-rc.3]: https://github.com/ate-tooling/ate-gress/compare/v0.1.0-rc.2...v0.1.0-rc.3
 [0.1.0-rc.2]: https://github.com/ate-tooling/ate-gress/compare/v0.1.0-rc.1...v0.1.0-rc.2
