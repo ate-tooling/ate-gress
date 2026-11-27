@@ -2,6 +2,7 @@ package ctl
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"text/tabwriter"
 
@@ -61,10 +62,11 @@ cleaned, so a path a client would not normally send can be tried as is.
 Exits 0 whatever the decision, and 1 if a policy is invalid.`
 
 func runExplain(args []string, env Env) error {
-	c := newFlags(env, "explain", "-f <policies>... -a <atespace>/<name> <METHOD> <URL>", explainHelp)
 	var actorFlag string
-	c.fs.StringVar(&actorFlag, "a", "", "The `actor` sending the request, as <atespace>/<name>.")
-	c.fs.StringVar(&actorFlag, "actor", "", "The same as -a.")
+	c := newFlags(env, "explain", "-f <policies>... -a <atespace>/<name> <METHOD> <URL>", explainHelp, func(fs *flag.FlagSet) {
+		fs.StringVar(&actorFlag, "a", "", "The `actor` sending the request, as <atespace>/<name>.")
+		fs.StringVar(&actorFlag, "actor", "", "The same as -a.")
+	})
 	rest, err := c.parse(args)
 	if err != nil {
 		return err
@@ -83,10 +85,7 @@ func runExplain(args []string, env Env) error {
 	if err != nil {
 		return err
 	}
-	if len(c.policies) == 0 {
-		return errors.New("explain: -f <policies> is required")
-	}
-	loaded, err := loadPolicies(c.policies, env.Stdin)
+	loaded, err := c.load("explain", env)
 	if err != nil {
 		return err
 	}
@@ -112,11 +111,9 @@ func runExplain(args []string, env Env) error {
 		// Compiling the one policy and deciding against it asks Decide
 		// itself, where matching its routes here would be a second
 		// implementation.
-		for _, p := range loaded.set.Policies() {
-			if p.Name == claim.Policy {
-				alone, _ := policy.Compile([]policyfile.Policy{p})
-				cr.Alone, _ = decide(alone, actor, req)
-			}
+		if d := loaded.set.Document(claim.Policy); d != nil {
+			alone, _ := policy.Compile([]policyfile.Policy{d.Policy})
+			cr.Alone, _ = decide(alone, actor, req)
 		}
 		ex.Claims = append(ex.Claims, cr)
 	}

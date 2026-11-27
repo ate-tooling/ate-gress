@@ -183,7 +183,7 @@ func TestSchema(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				d := set.Documents[0]
+				d := set.documents[0]
 				if valid := len(d.Invalid) == 0; valid != tc.valid {
 					t.Fatalf("valid = %v (%v), want %v\n%s", valid, d.Invalid, tc.valid, manifest)
 				}
@@ -331,7 +331,7 @@ func mustLoad(t *testing.T, manifest string) Policy {
 		t.Fatal(err)
 	}
 	if !set.Valid() {
-		t.Fatalf("invalid: %v", set.Documents[0].Invalid)
+		t.Fatalf("invalid: %v", set.documents[0].Invalid)
 	}
-	return set.Documents[0].Policy
+	return set.documents[0].Policy
 }

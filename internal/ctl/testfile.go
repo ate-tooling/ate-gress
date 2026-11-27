@@ -19,7 +19,7 @@ import (
 // the format for the people who write it.
 type testFile struct {
 	// Policies are the policy files the tests run against, relative to the
-	// test file. -f on the command line replaces them.
+	// test file; not "-". -f on the command line replaces them.
 	Policies []string    `json:"policies,omitempty"`
 	Tests    []testGroup `json:"tests"`
 }
@@ -122,6 +122,11 @@ func parseTestFile(data []byte) ([]string, []testCase, error) {
 		if len(cases) == before {
 			return nil, nil, fmt.Errorf("%s: no requests under allow, deny or audit", at)
 		}
+	}
+	// "-" reads stdin with -f, but a test file's policies are files: reading
+	// stdin for it would make the file mean something else on every run.
+	if i := slices.Index(f.Policies, "-"); i >= 0 {
+		return nil, nil, fmt.Errorf("policies[%d]: \"-\" (stdin) can only be given with -f", i)
 	}
 	return f.Policies, cases, nil
 }

@@ -202,6 +202,10 @@ func (s *Snapshot) logAllowed(host string, hps []*hostPolicy, a identity.Actor) 
 	return false
 }
 
+// ClaimedHost returns the host a snapshot keys a policy's host by, as
+// Snapshot.Hosts lists it, or false if no request could name it.
+func ClaimedHost(host string) (string, bool) { return normalizeAuthority(host) }
+
 // normalizeAuthority returns the lowercase host part of authority, without a
 // port or a trailing dot. It refuses anything else that is not a hostname or
 // IP literal, such as userinfo, so a policy's host cannot be sidestepped by

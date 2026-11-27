@@ -1,7 +1,7 @@
 package ctl
 
 import (
-	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"strings"
@@ -9,7 +9,6 @@ import (
 
 	"github.com/ate-tooling/ate-gress/internal/egresspolicy"
 	"github.com/ate-tooling/ate-gress/internal/lint"
-	"github.com/ate-tooling/ate-gress/internal/policyfile"
 )
 
 // lintReport is the result of `ategressctl lint`, and its JSON output.
@@ -35,15 +34,16 @@ checked.
 Exits 1 if there is a finding at or above --fail-on, and 0 otherwise.`
 
 func runLint(args []string, env Env) error {
-	c := newFlags(env, "lint", "-f <policies>... [--egress-policy [<atespace>/<name>=]<file>]...", lintHelp)
 	var (
 		egressFlags stringList
 		failOn      string
 		list        bool
 	)
-	c.fs.Var(&egressFlags, "egress-policy", "Substrate EgressPolicy `manifest` to check claimed hosts against, optionally as <atespace>/<name>=<file>; repeatable.")
-	c.fs.StringVar(&failOn, "fail-on", "error", "Lowest `severity` that makes the exit code 1: error, warning, info, or never.")
-	c.fs.BoolVar(&list, "list", false, "Print the checks and exit.")
+	c := newFlags(env, "lint", "-f <policies>... [--egress-policy [<atespace>/<name>=]<file>]...", lintHelp, func(fs *flag.FlagSet) {
+		fs.Var(&egressFlags, "egress-policy", "Substrate EgressPolicy `manifest` to check claimed hosts against, optionally as <atespace>/<name>=<file>; repeatable.")
+		fs.StringVar(&failOn, "fail-on", "error", "Lowest `severity` that makes the exit code 1: error, warning, info, or never.")
+		fs.BoolVar(&list, "list", false, "Print the checks and exit.")
+	})
 	rest, err := c.parse(args)
 	if err != nil {
 		return err
@@ -58,9 +58,6 @@ func runLint(args []string, env Env) error {
 	if !ok {
 		return fmt.Errorf("lint: --fail-on %q is not error, warning, info or never", failOn)
 	}
-	if len(c.policies) == 0 {
-		return errors.New("lint: -f <policies> is required")
-	}
 	var egress []lint.EgressPolicy
 	for _, arg := range egressFlags {
 		e, err := loadEgressPolicy(arg)
@@ -69,7 +66,7 @@ func runLint(args []string, env Env) error {
 		}
 		egress = append(egress, e)
 	}
-	set, err := policyfile.Load(c.policies, env.Stdin)
+	set, err := c.loadSet("lint", env)
 	if err != nil {
 		return err
 	}
@@ -94,7 +91,7 @@ func runLint(args []string, env Env) error {
 		if len(report.Findings) > 0 {
 			fmt.Fprintln(env.Stdout)
 		}
-		fmt.Fprintf(env.Stdout, "%d policies: %d errors, %d warnings, %d info\n", len(set.Documents),
+		fmt.Fprintf(env.Stdout, "%d policies: %d errors, %d warnings, %d info\n", set.Len(),
 			report.Summary[lint.Error], report.Summary[lint.Warning], report.Summary[lint.Info])
 	}
 	if failed {

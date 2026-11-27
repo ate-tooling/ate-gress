@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"iter"
 	"os"
 	"path/filepath"
 	"slices"
@@ -31,6 +32,7 @@ import (
 
 	"github.com/ate-tooling/ate-gress/api/v1alpha1"
 	"github.com/ate-tooling/ate-gress/api/v1beta1"
+	"github.com/ate-tooling/ate-gress/internal/policy"
 )
 
 // Policy is the type policy.Compile takes, and Host, Route and Method are the
@@ -134,24 +136,71 @@ func (d *Document) Source() string {
 
 // Set is the policies read from a list of paths.
 type Set struct {
-	Documents []Document
+	documents []Document
 	// Skipped counts the documents under a directory that were not
 	// EgressRoutePolicy objects.
 	Skipped int
 }
 
+// Len returns the number of policies in s.
+func (s *Set) Len() int { return len(s.documents) }
+
+// All yields the documents of s, in the order they were read.
+func (s *Set) All() iter.Seq[*Document] {
+	return func(yield func(*Document) bool) {
+		for i := range s.documents {
+			if !yield(&s.documents[i]) {
+				return
+			}
+		}
+	}
+}
+
+// Document returns the document of the policy named name, or nil. Load
+// refuses two policies of one name; a policy without a name has none.
+func (s *Set) Document(name string) *Document {
+	if name == "" {
+		return nil
+	}
+	i := slices.IndexFunc(s.documents, func(d Document) bool { return d.Name() == name })
+	if i < 0 {
+		return nil
+	}
+	return &s.documents[i]
+}
+
+// Compile builds the snapshot ate-gress would serve from s, and the
+// compiler's result for each policy, in the order of All. A policy without a
+// name is left out, since the API server refuses it; its result is zero.
+func (s *Set) Compile() (*policy.Snapshot, []policy.Result) {
+	var named []Policy
+	var index []int
+	for i, d := range s.documents {
+		if d.Name() != "" {
+			named = append(named, d.Policy)
+			index = append(index, i)
+		}
+	}
+	snap, compiled := policy.Compile(named)
+	results := make([]policy.Result, len(s.documents))
+	for j, i := range index {
+		results[i] = compiled[j]
+	}
+	return snap, results
+}
+
 // Policies returns the policies in s, in the order they were read.
 func (s *Set) Policies() []Policy {
-	out := make([]Policy, len(s.Documents))
-	for i := range s.Documents {
-		out[i] = s.Documents[i].Policy
+	out := make([]Policy, len(s.documents))
+	for i := range s.documents {
+		out[i] = s.documents[i].Policy
 	}
 	return out
 }
 
 // Valid reports whether the API server would accept every policy in s.
 func (s *Set) Valid() bool {
-	return !slices.ContainsFunc(s.Documents, func(d Document) bool { return len(d.Invalid) > 0 })
+	return !slices.ContainsFunc(s.documents, func(d Document) bool { return len(d.Invalid) > 0 })
 }
 
 // Load reads the policies in paths. A path is a file of one or more YAML or
@@ -178,12 +227,12 @@ func Load(paths []string, stdin io.Reader) (*Set, error) {
 			return nil, err
 		}
 	}
-	if len(set.Documents) == 0 {
+	if len(set.documents) == 0 {
 		return nil, fmt.Errorf("no %s found in %s", Kind, strings.Join(paths, ", "))
 	}
-	seen := make(map[string]string, len(set.Documents))
-	for i := range set.Documents {
-		d := &set.Documents[i]
+	seen := make(map[string]string, len(set.documents))
+	for i := range set.documents {
+		d := &set.documents[i]
 		if d.Name() == "" {
 			continue // reported in d.Invalid
 		}
@@ -241,7 +290,7 @@ func (s *Set) loadPath(p string, stdin io.Reader) error {
 // loadFile reads the documents in one file. lenient is set for a file found
 // under a directory, where documents of other kinds are skipped.
 func (s *Set) loadFile(file string, data []byte, lenient bool) error {
-	before := len(s.Documents)
+	before := len(s.documents)
 	docs := utilyaml.NewYAMLReader(bufio.NewReader(bytes.NewReader(data)))
 	for index := 1; ; index++ {
 		doc, err := docs.Read()
@@ -274,7 +323,7 @@ func (s *Set) loadFile(file string, data []byte, lenient bool) error {
 			return fmt.Errorf("%s: document %d: %w", file, index, err)
 		}
 	}
-	if !lenient && len(s.Documents) == before {
+	if !lenient && len(s.documents) == before {
 		return fmt.Errorf("%s: no %s found", file, Kind)
 	}
 	return nil
@@ -357,8 +406,8 @@ func (s *Set) loadObject(file string, index int, obj any, lenient bool) error {
 	slices.SortStableFunc(doc.Invalid, func(a, b FieldError) int {
 		return cmp.Or(cmp.Compare(a.Field, b.Field), cmp.Compare(a.Message, b.Message))
 	})
-	doc.Order = len(s.Documents)
-	s.Documents = append(s.Documents, doc)
+	doc.Order = len(s.documents)
+	s.documents = append(s.documents, doc)
 	return nil
 }
 

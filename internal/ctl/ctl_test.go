@@ -188,6 +188,7 @@ func TestTestFileErrors(t *testing.T) {
 		{"request without a host", "tests:\n- actor: a/b\n  deny: [GET https:///x]\n", "has no host"},
 		{"misspelled reason", "tests:\n- actor: a/b\n  deny:\n  - request: GET https://a.example.com/\n    reason: noroute\n", `reason "noroute" is not one a request under "deny" can have (no_route, path, invalid_policy, authority)`},
 		{"reason of another outcome", "tests:\n- actor: a/b\n  allow:\n  - request: GET https://a.example.com/\n    reason: no_route\n", `can have (route, unclaimed)`},
+		{"stdin as a policy file", "policies: [p.yaml, \"-\"]\ntests:\n- actor: a/b\n  allow: [GET https://a.example.com/]\n", `policies[1]: "-" (stdin) can only be given with -f`},
 		{"invalid_policy under allow", "tests:\n- actor: a/b\n  allow:\n  - request: GET https://a.example.com/\n    reason: invalid_policy\n", `can have (route, unclaimed)`},
 	}
 	dir := t.TempDir()

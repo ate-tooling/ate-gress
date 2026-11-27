@@ -210,16 +210,10 @@ schema but failed ate-gress's compiler, for 5m. That happens when the
 cluster's CRD is older than the binary, or after a rollback to a binary that
 does not know something the policy uses.
 
-**Impact.** None of the rejected policy's routes are in effect. What that
-does to its hosts depends on the version of ate-gress:
-
-- Releases whose deny reasons include `invalid_policy` keep a rejected
-  policy as a lockdown: it still claims its hosts for its actors and allows
-  nothing, so those requests are denied with `invalid_policy` unless another
-  `Enforce` policy has a route for them. It fails closed.
-- Earlier releases leave the rejected policy out of the snapshot entirely. A
-  host that only it claimed is then unclaimed, and requests to it are
-  allowed, as far as ate-gress is concerned. It fails open for those hosts.
+**Impact.** None of the rejected policy's routes are in effect, and it fails
+closed: it still claims its hosts for its actors and allows nothing, so
+their requests to those hosts are denied with `invalid_policy` unless
+another `Enforce` policy has a route for them.
 
 **Confirm.**
 
@@ -389,7 +383,7 @@ The reasons:
 | `no_route` | The host is claimed for the actor, and no `Enforce` policy that claims it has a route for this method and path. |
 | `path` | The host is claimed, and the path is one ate-gress will not match because an upstream could read it differently: encoded `/`, `\`, `.` or `;`, dot segments (also `..;x`), empty segments, non-ASCII. |
 | `authority` | `:authority` is not a hostname. |
-| `invalid_policy` | (Releases that have it.) The host is claimed only by rejected policies; see [AteGressPoliciesRejected](#ategresspoliciesrejected). |
+| `invalid_policy` | The host is claimed only by rejected policies; see [AteGressPoliciesRejected](#ategresspoliciesrejected). |
 | `identity` | No single well-formed actor identity arrived with the request. See [AteGressGatewayContractBroken](#ategressgatewaycontractbroken). |
 | `headers` | `:method`, `:authority` or `:path` missing or repeated. |
 | `not_ready` | The replica had no snapshot yet. A ready replica never gives this. |

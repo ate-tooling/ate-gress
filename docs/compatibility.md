@@ -1,114 +1,46 @@
 # Compatibility
 
-What you can rely on across ate-gress releases, and what ate-gress relies on
-in Substrate and Envoy.
+What ate-gress relies on in Substrate and Envoy, and what you can rely on
+across ate-gress releases.
 
-The promises below start with `0.1.0`. The `0.1.0` release candidates
-before it promised nothing: between two of them anything could change. [CHANGELOG.md](../CHANGELOG.md)
-records every change that affects a running installation, marked
-**Operators**.
+## ate-gress is alpha
 
-## The EgressRoutePolicy API
+There are no compatibility promises between releases. Anything may change in
+any release, including a patch release: the `EgressRoutePolicy` schema and
+its API versions, what a valid policy means, the CRD's group, metric and
+label names, deny reasons, the decision log's fields, flags and chart
+values. An API version may be dropped without a conversion path, and
+policies may have to be recreated.
 
-### Served versions
+[CHANGELOG.md](../CHANGELOG.md) records every change that affects a running
+installation, marked **Operators**. Read the **Operators** entries of every
+version you upgrade across. One thing gets particular care: a change that
+makes an existing policy **allow** a request it denied before is always
+called out there.
 
-`EgressRoutePolicy` is served as `v1beta1` and as `v1alpha1`, with one
-schema. Policies are stored as `v1alpha1`, and `v1alpha1` is not deprecated.
-Charts up to 0.1.0-rc.4 serve `v1alpha1` alone.
-[docs/design.md](design.md#api-versions) says why, and the steps from here.
-
-### `v1alpha1`
-
-`v1alpha1` was the only API version up to 0.1.0-rc.4. On its own it carries
-no compatibility promise:
-
-- Fields, defaults and validation may change in any release, and a field may
-  be removed.
-- The API version may be dropped without a conversion path. Moving the API
-  group in 0.1.0-rc.3 was such a change: policies had to be recreated.
-- What a field means may change. The changelog will say so.
-
-While it shares its schema with `v1beta1`, though, a change to `v1alpha1` is
-a change to `v1beta1`, and is held to the rules for `v1beta1` below. And
-now that `v1beta1` is served, the deprecation rule below covers `v1alpha1`
-as well.
-
-One thing is held to even in `v1alpha1`, because it is a safety property and
-not a convenience: **a release does not make an existing, valid policy allow
-a request it denied before** without an **Operators** entry in the changelog
-that says so. Grammar is extended in ways that leave existing templates
-matching what they matched, as the trailing-slash templates of 0.1.0-rc.4
-were.
-
-Write new manifests as `v1beta1`, unless you may run or roll back to a chart
-that serves only `v1alpha1`. Keep them in version control.
-
-### `v1beta1` and later
-
-These rules apply to `v1beta1` and to every later version, from the release
-that first serves it: the first release after 0.1.0-rc.4. They follow the
-[Kubernetes API deprecation policy](https://kubernetes.io/docs/reference/using-api/deprecation-policy/)
-where it fits a single CRD.
-
-- **Within an API version, changes are additive.** A field is not removed or
-  renamed, its type and default do not change, and validation is not
-  tightened in a way that rejects an object the version already accepted.
-  New fields are optional, and leaving one unset means what it meant before
-  the field existed.
-- **The meaning of a valid policy does not widen.** A policy that is valid
-  under one release allows no more under the next. A change that would let
-  an existing template match more paths, or an existing selector select more
-  actors, needs a new API version.
-- **The meaning of a valid policy narrows only with notice.** If a release
-  must make an existing policy deny something it allowed, because the old
-  behaviour was unsafe, the changelog says so under **Operators** and
-  **Security**. This is the one way behaviour within a version may break.
-- **Versions convert without loss.** While two versions are served, an
-  object written in either reads back the same in both. No manual migration
-  is needed to move stored objects to a newer version. Today this holds
-  because `v1alpha1` and `v1beta1` have one schema and the API server
-  converts by rewriting the `apiVersion` alone; tests in `api/` fail if the
-  schemas differ.
-- **A deprecated version keeps being served** for at least the two minor
-  releases after the one that deprecates it, and for at least six months.
-  The release that deprecates it says which version replaces it. `v1alpha1`
-  is covered by this rule, even though it has no other promise. It is not
-  deprecated yet.
-- **Removal is announced one minor release ahead** in the changelog, with the
-  steps to move stored objects off the version.
-
-The resource is cluster-scoped, and a CRD's scope cannot be changed. If
-policies are ever delegated to namespaces, that will be a new Kind beside
-this one, not a change to it. See
-[ADR 0001](adr/0001-policy-delegation.md).
+Keep your policies in version control, and test them with
+[ategressctl](ategressctl.md) against the release you are moving to.
 
 ### The CRD and the binary
 
-The CRD schema and the ate-gress binary are released together and should be
-upgraded together, CRD first.
+The CRD schema and the ate-gress binary are released together. Upgrade them
+together, CRD first; the chart ships the CRD as a template, so
+`helm upgrade` does that, and `helm uninstall` keeps it. With
+`crds.install=false`, apply the CRD file from the GitHub release before you
+upgrade the chart.
 
-- **Newer CRD, older binary.** The API server may store a policy the older
-  binary cannot compile. The binary rejects that policy whole and sets
-  `Accepted=False` on it. A rejected policy fails closed: it allows nothing
-  and still claims its hosts for the actors it selects, so requests to them
-  are denied unless another `Enforce` policy allows them, with reason
-  `invalid_policy` where every `Enforce` policy claiming the host for the
-  actor was rejected. Binaries up to 0.1.0-rc.4 instead left a rejected
-  policy out of the snapshot, so hosts it alone claimed were released to
-  Substrate's `EgressPolicy`; a rollback to one of them brings that back. Watch `ategress_policies{state="rejected"}`
-  and `ategress_decisions_total{reason="invalid_policy"}` across an upgrade
-  or a rollback.
-- **Older CRD, newer binary.** The API server prunes fields the older schema
-  does not know and rejects syntax it does not admit. Policies keep their old
-  meaning.
+If the API server holds a policy the binary cannot compile, the binary
+rejects that policy whole and sets `Accepted=False` on it. A rejected policy
+fails closed: it allows nothing and still claims its hosts for the actors it
+selects, so their requests to those hosts are denied with reason
+`invalid_policy` unless another `Enforce` policy allows them. Watch
+`ategress_policies{state="rejected"}` and
+`ategress_decisions_total{reason="invalid_policy"}` across an upgrade or a
+rollback.
 
-The chart ships the CRD as a template, so `helm upgrade` upgrades it and
-`helm rollback` puts the earlier one back; `helm uninstall` keeps it. Charts
-up to 0.1.0-rc.4 shipped it in `crds/`, which Helm installs on first install
-and never upgrades: upgrading from one of them takes a one-time step that
-hands the CRD to the release, described under
-[Upgrade](../README.md#upgrade). With `crds.install=false`, apply the CRD
-file from the GitHub release before you upgrade the chart.
+The resource is cluster-scoped, and a CRD's scope cannot be changed. If
+policies are ever delegated to namespaces, that will be a new Kind beside
+this one. See [ADR 0001](adr/0001-policy-delegation.md).
 
 ## Version skew
 
@@ -141,7 +73,7 @@ against the newest stable Envoy and Envoy's `dev` build as well.
 
 | ate-gress | Substrate | Dataplane |
 |---|---|---|
-| 0.1.0 | v1.0.0 | Envoy only |
+| 0.1.x | v1.0.0 | Envoy only |
 
 Nothing else is tested. In particular:
 
@@ -218,86 +150,14 @@ version you skip.
 
 ## Metrics, logs and deny reasons
 
-These are the interfaces operators build alerts and dashboards on. The same
-rule applies as for the API: stable from `0.1.0`, and until then the
-changelog is the only promise.
+These carry no stability promise either; the changelog says when they
+change. Two rules hold by design and are not expected to change:
 
-### Stable
+- **Labels stay bounded.** Actors, hosts and paths are not metric labels.
+  They are in the decision log. The one policy label, on
+  `ategress_policy_decisions_total`, is bounded by the policies the cluster
+  holds, not by traffic.
+- **Header values are never logged.**
 
-- **The deny reason values**: `no_route`, `path`, `invalid_policy`,
-  `authority`, `identity`, `headers`, `not_ready`; and the allow reasons
-  `route` and `unclaimed`. A value is not renamed or removed, and keeps its
-  meaning. `no_route`, `path` and `invalid_policy` are also the reasons of an
-  audit.
-- **Where the reason appears**: the `x-ate-gress-reason` response header on a
-  denial, the `reason` label of `ategress_decisions_total`, and the `reason`
-  field of the decision log. A denial is an HTTP `403`.
-- **The decision values** `allow`, `deny` and `audit`, in the `decision`
-  label and log field.
-- **The metric names and label names**, and the label values listed:
-  - `ategress_decisions_total{decision,reason}`,
-    `ategress_decision_duration_seconds` and
-    `ategress_decision_logs_suppressed_total`;
-  - `ategress_policy_decisions_total{policy,decision}`, with `decision`
-    `allow`, `deny` and `audit`;
-  - `ategress_snapshot_generation`, `ategress_policies{state}` with `state`
-    `accepted` and `rejected`,
-    `ategress_snapshot_last_build_timestamp_seconds` and
-    `ategress_snapshot_policies_hash`;
-  - `ategress_active_streams`;
-  - `ategress_tls_certificate_expiry_timestamp_seconds`,
-    `ategress_tls_reload_failures_total{file}` with `file`
-    `credential_bundle` and `client_ca_bundle`, and
-    `ategress_tls_handshake_failures_total{reason}` with `reason`
-    `client_identity`, `client_certificate` and `other`;
-  - `ategress_build_info{version,goversion}`.
-- **The decision log's field names**: `decision`, `reason`, `actor`,
-  `method`, `authority`, `path`, `policy`, `pattern`, `request_id`, and
-  `suppressed` and `suppressed_untracked`, which appear only on a record
-  written after records were dropped by the rate limit. A field is not
-  renamed or removed, and header values are never logged.
-- **Labels stay bounded.** Actors, hosts and paths are not metric labels and
-  will not become ones. They are in the decision log. The one policy label,
-  on `ategress_policy_decisions_total`, has a series per policy in the
-  snapshot, so it is bounded by the policies the cluster holds and not by
-  traffic.
-
-### Not stable
-
-- **New values and new names.** A release may add a reason, a metric, a
-  label, or a log field. Write alerts so that an unknown reason is still
-  counted as a denial, and parsers so that an unknown field is ignored.
-- **Which reason a given request gets**, when a release changes what is
-  accepted. 0.1.0-rc.4 moved requests with one trailing slash from `path` to
-  `no_route`, and the release after it moved requests to hosts that only a
-  rejected policy claims from an `unclaimed` allow to an `invalid_policy`
-  denial. Such a change gets an **Operators** entry in the changelog.
-  Alert on the `deny` decision for totals, and on single reasons only for
-  diagnosis.
-- **Histogram buckets** of `ategress_decision_duration_seconds`.
-- **Which policies a request counts against** in
-  `ategress_policy_decisions_total` when several claim its host. The
-  [README](../README.md#per-policy-decisions) describes today's rule; a
-  change gets an **Operators** entry.
-- **The value of `ategress_snapshot_policies_hash`.** Only whether two
-  replicas report the same value means anything; how it is computed may
-  change between releases, so replicas of two versions may disagree during a
-  rollout.
-- **A finer `reason` of `ategress_tls_handshake_failures_total`.** A new
-  value may be split out of `other`.
-- **The rate limit on decision logs**: its defaults, which are flags and
-  chart values, and which records share a bucket. The counts it reports are
-  stable as described above.
-- **Log message text, field order, and log lines other than the decision
-  log**, such as the snapshot and policy-rejected messages.
-- **The body of a denial**, and the `ate_gress_denied_<reason>` string Envoy
-  records as the response code details. The reason inside it is stable; the
-  prefix is not promised.
-- **The `policy` and `pattern` a decision reports** when several policies
-  could account for it. Today a denial names the first claiming policy by
-  name order.
-- **Command-line flags, chart values and ports** are not covered by this
-  document.
-
-A deprecated stable name is kept for at least two minor releases, with the
-replacement emitted beside it where that is possible.
+Write alerts on the `deny` decision for totals and treat an unknown reason
+as a denial, and parse the decision log ignoring unknown fields.

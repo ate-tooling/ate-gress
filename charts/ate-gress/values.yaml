@@ -202,8 +202,11 @@ prometheusRule:
       minRate: 0.1
       for: 5m
       severity: warning
-    # A policy the compiler rejected is left out of the snapshot. That can
-    # only remove allows, so its actors are denied what it would have allowed.
+    # A policy the compiler rejected allows nothing, but still claims its
+    # hosts for the actors it selects: unless another Enforce policy allows
+    # them, their requests to those hosts are denied with reason
+    # invalid_policy, including hosts no other policy claims. Fix or delete
+    # the policy to lift it.
     policiesRejected:
       enabled: true
       for: 5m
