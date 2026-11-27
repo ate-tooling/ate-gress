@@ -136,9 +136,10 @@ spec:
       annotations:
         summary: ate-gress rejected an EgressRoutePolicy.
         description: >-
-          {{ "{{ $value }}" }} policies failed to compile, so none of their
-          routes are in effect. kubectl get egressroutepolicies shows which,
-          and why.
+          {{ "{{ $value }}" }} policies failed to compile: none of their
+          routes are in effect, and their actors are denied the hosts they
+          claim (reason invalid_policy). kubectl get egressroutepolicies
+          shows which, and why.
         {{- include "ate-gress.runbook" (list $ "AteGressPoliciesRejected") | nindent 8 }}
     {{- end }}
     {{- end }}

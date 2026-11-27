@@ -6,6 +6,7 @@ import (
 	"net"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ate-tooling/ate-gress/internal/testpki"
 )
@@ -154,5 +155,65 @@ func TestServerFailsFast(t *testing.T) {
 				t.Errorf("Server() error = %v, want one mentioning %q", err, tt.errSub)
 			}
 		})
+	}
+}
+
+// TestServerDoesNotResumeAcrossRotation checks that a client CA removed from
+// the bundle is refused on the next connection, including by a client that
+// kept a session from before. crypto/tls re-verifies a resumed session's
+// chains against the ClientCAs of the config GetConfigForClient returns;
+// this pins that.
+func TestServerDoesNotResumeAcrossRotation(t *testing.T) {
+	f := newFixture(t)
+	srv, err := Server(f.cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envoy := f.clientCA.Client(t, envoyID).TLSCertificate()
+	cache := tls.NewLRUClientSessionCache(1)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer conn.Close()
+				s := tls.Server(conn, srv)
+				if s.Handshake() == nil {
+					_, _ = s.Write([]byte{0})
+				}
+			}()
+		}
+	}()
+	connect := func() (resumed bool, err error) {
+		c, err := tls.DialWithDialer(&net.Dialer{Timeout: 5 * time.Second}, "tcp", ln.Addr().String(), &tls.Config{
+			RootCAs: f.servingCA.Pool(), ServerName: serverName,
+			Certificates: []tls.Certificate{envoy}, ClientSessionCache: cache,
+		})
+		if err != nil {
+			return false, err
+		}
+		defer c.Close()
+		_ = c.SetDeadline(time.Now().Add(5 * time.Second))
+		// Reading also takes in the session ticket sent before the byte.
+		_, err = c.Read(make([]byte, 1))
+		return c.ConnectionState().DidResume, err
+	}
+	if _, err := connect(); err != nil {
+		t.Fatal(err)
+	}
+	// The test means something only if sessions do resume.
+	if resumed, err := connect(); err != nil || !resumed {
+		t.Fatalf("second connection: resumed = %v, err = %v; want a resumed session", resumed, err)
+	}
+	testpki.WriteFile(t, f.dir, "trust-bundle.pem", testpki.NewCA(t, "podidentity-2").PEM())
+	if resumed, err := connect(); err == nil {
+		t.Fatalf("client from a CA no longer in the bundle was accepted (resumed: %v)", resumed)
 	}
 }

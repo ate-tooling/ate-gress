@@ -109,7 +109,7 @@ A test file says which requests the policies must allow, deny and audit,
 grouped by the actor that sends them:
 
 ```yaml
-policies:                       # relative to this file; -f replaces them
+policies:                       # relative to this file, not "-"; -f replaces them
 - github-single-org.yaml
 
 tests:

@@ -1,13 +1,10 @@
 package ctl
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"slices"
 
 	"github.com/ate-tooling/ate-gress/internal/lint"
 )
@@ -52,7 +49,7 @@ its cases are run.
 Exits 0 if every case passed, 1 if a case failed or a policy is invalid.`
 
 func runTest(args []string, env Env) error {
-	c := newFlags(env, "test", "[-f <policies>]... <test file>...", testHelp)
+	c := newFlags(env, "test", "[-f <policies>]... <test file>...", testHelp, nil)
 	files, err := c.parse(args)
 	if err != nil {
 		return err
@@ -63,20 +60,15 @@ func runTest(args []string, env Env) error {
 
 	// Each test file loads its policies afresh, so with "-f -" each one
 	// reads the same stdin.
-	var stdin []byte
-	if slices.Contains(c.policies, "-") {
-		if stdin, err = io.ReadAll(env.Stdin); err != nil {
-			return fmt.Errorf("reading stdin: %w", err)
-		}
+	nextEnv, err := c.replayStdin(env)
+	if err != nil {
+		return err
 	}
 
 	report := testReport{Files: []testFileReport{}}
 	ok := true
 	for _, file := range files {
-		if stdin != nil {
-			env.Stdin = bytes.NewReader(stdin)
-		}
-		fr, err := runTestFile(file, c.policies, env)
+		fr, err := runTestFile(file, c, nextEnv())
 		if err != nil {
 			return fmt.Errorf("%s: %w", file, err)
 		}
@@ -105,24 +97,16 @@ func runTest(args []string, env Env) error {
 	return nil
 }
 
-func runTestFile(file string, override []string, env Env) (testFileReport, error) {
+func runTestFile(file string, c *common, env Env) (testFileReport, error) {
 	data, err := os.ReadFile(file)
 	if err != nil {
 		return testFileReport{}, err
 	}
-	paths, cases, err := parseTestFile(data)
+	listed, cases, err := parseTestFile(data)
 	if err != nil {
 		return testFileReport{}, err
 	}
-	if len(override) > 0 {
-		paths = override
-	} else {
-		for i, p := range paths {
-			if !filepath.IsAbs(p) {
-				paths[i] = filepath.Join(filepath.Dir(file), p)
-			}
-		}
-	}
+	paths := c.policyPaths(listed, filepath.Dir(file))
 	if len(paths) == 0 {
 		return testFileReport{}, errors.New("no policies: name them under \"policies\" in the test file, or with -f")
 	}

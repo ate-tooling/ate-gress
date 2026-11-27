@@ -7,11 +7,14 @@
 package ctl
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/ate-tooling/ate-gress/internal/identity"
@@ -121,7 +124,9 @@ type common struct {
 	output   string
 }
 
-func newFlags(env Env, name, synopsis, help string) *common {
+// newFlags returns the flags of command name: the common ones, and those
+// define adds, if it is not nil.
+func newFlags(env Env, name, synopsis, help string, define func(*flag.FlagSet)) *common {
 	c := &common{fs: flag.NewFlagSet("ategressctl "+name, flag.ContinueOnError)}
 	c.fs.SetOutput(env.Stderr)
 	c.fs.Usage = func() {
@@ -130,6 +135,9 @@ func newFlags(env Env, name, synopsis, help string) *common {
 	}
 	c.fs.Var(&c.policies, "f", "EgressRoutePolicy `file`, directory, or - for stdin; repeatable.")
 	c.fs.StringVar(&c.output, "o", "text", "Output `format`: text or json.")
+	if define != nil {
+		define(c.fs)
+	}
 	return c
 }
 
@@ -157,6 +165,59 @@ func (c *common) parse(args []string) ([]string, error) {
 }
 
 func (c *common) json() bool { return c.output == "json" }
+
+// loadSet loads the policies -f names, which command requires.
+func (c *common) loadSet(command string, env Env) (*policyfile.Set, error) {
+	if len(c.policies) == 0 {
+		return nil, fmt.Errorf("%s: -f <policies> is required", command)
+	}
+	return policyfile.Load(c.policies, env.Stdin)
+}
+
+// load loads the policies -f names, which command requires, and the
+// snapshot ate-gress would build from them.
+func (c *common) load(command string, env Env) (*policies, error) {
+	set, err := c.loadSet(command, env)
+	if err != nil {
+		return nil, err
+	}
+	return newPolicies(set), nil
+}
+
+// policyPaths returns the policy files to load for a test file in dir that
+// lists listed: those -f names if any, which replace them, and otherwise
+// listed, relative to dir.
+func (c *common) policyPaths(listed []string, dir string) []string {
+	if len(c.policies) > 0 {
+		return c.policies
+	}
+	paths := make([]string, len(listed))
+	for i, p := range listed {
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(dir, p)
+		}
+		paths[i] = p
+	}
+	return paths
+}
+
+// replayStdin returns env with a Stdin each call to next rereads from the
+// start, when -f names "-"; otherwise next returns env as it is. It lets
+// each test file load "-f -" afresh.
+func (c *common) replayStdin(env Env) (next func() Env, err error) {
+	if !slices.Contains(c.policies, "-") {
+		return func() Env { return env }, nil
+	}
+	data, err := io.ReadAll(env.Stdin)
+	if err != nil {
+		return nil, fmt.Errorf("reading stdin: %w", err)
+	}
+	return func() Env {
+		e := env
+		e.Stdin = bytes.NewReader(data)
+		return e
+	}, nil
+}
 
 func writeJSON(w io.Writer, v any) error {
 	enc := json.NewEncoder(w)
@@ -188,8 +249,12 @@ func loadPolicies(paths []string, stdin io.Reader) (*policies, error) {
 	if err != nil {
 		return nil, err
 	}
+	return newPolicies(set), nil
+}
+
+func newPolicies(set *policyfile.Set) *policies {
 	snap, _, invalid := lint.Validate(set)
-	return &policies{set: set, snap: snap, invalid: invalid}, nil
+	return &policies{set: set, snap: snap, invalid: invalid}
 }
 
 // parseActor reads "<atespace>/<name>". It accepts what the server's identity

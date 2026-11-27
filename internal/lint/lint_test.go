@@ -501,3 +501,32 @@ rules:
 		}
 	})
 }
+
+// TestRejectedHostField checks that a finding about a rejected policy's host
+// points at the host as written, though the snapshot holds it normalized.
+func TestRejectedHostField(t *testing.T) {
+	set := load(t, enforcePolicy("rejected", "{atespaces: [Research]}", "A.Example.com"))
+	ep, err := egresspolicy.Parse([]byte("rules:\n- tlsPassthrough: {hostnames: [a.example.com], ports: {numbers: [443]}}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := Run(set, []EgressPolicy{{File: "ep.yaml", Policy: ep}})
+	if !slices.Contains(brief(got), "rejected spec.hosts[0].host ERP301") {
+		t.Errorf("no ERP301 on spec.hosts[0].host: %q", brief(got))
+	}
+}
+
+// TestNamelessPoliciesAreNotServed checks that a document without
+// metadata.name, which the API server refuses, claims nothing: it neither
+// shadows another policy nor takes the findings of one.
+func TestNamelessPoliciesAreNotServed(t *testing.T) {
+	nameless := func(host string) string {
+		return strings.Replace(manifest("x", "actorSelector: {atespaces: [team-*]}\nhosts:\n- host: "+host+"\n  routes:\n  - methods: [GET]\n    paths: [/**]"), "metadata:\n  name: x\n", "", 1)
+	}
+	audit := manifest("audit", "enforcementMode: Audit\nactorSelector: {atespaces: [team-a]}\nhosts:\n- host: a.example.com\n  routes:\n  - methods: [GET]\n    paths: [/**]")
+	for _, f := range Run(load(t, nameless("a.example.com"), nameless("b.example.com"), audit), nil) {
+		if f.Code != Schema.Code {
+			t.Errorf("%q %s %s: %s", f.Policy, f.Field, f.Code, f.Message)
+		}
+	}
+}

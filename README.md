@@ -262,8 +262,9 @@ the test-file format, the lint codes, the JSON output and the exit codes.
 | Runbook | [docs/runbook.md](docs/runbook.md): every alert, reading a denial, rolling out a policy, break glass |
 
 [docs/compatibility.md](docs/compatibility.md) says which Substrate and Envoy
-versions ate-gress is tested against, what an upgrade of either can break,
-and which metrics, log fields and deny reasons are stable.
+versions ate-gress is tested against and what an upgrade of either can
+break. ate-gress is alpha: nothing is promised to stay the same between
+releases.
 [CHANGELOG.md](CHANGELOG.md) marks the changes operators have to act on.
 
 ### Metrics

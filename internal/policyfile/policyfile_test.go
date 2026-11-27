@@ -9,9 +9,9 @@ import (
 )
 
 func names(s *Set) []string {
-	out := make([]string, len(s.Documents))
-	for i := range s.Documents {
-		out[i] = s.Documents[i].Name()
+	out := make([]string, len(s.documents))
+	for i := range s.documents {
+		out[i] = s.documents[i].Name()
 	}
 	return out
 }
@@ -46,9 +46,9 @@ func TestLoad(t *testing.T) {
 		t.Errorf("policies = %v, want %v", got, want)
 	}
 	if !set.Valid() {
-		t.Errorf("a valid set is reported invalid: %+v", set.Documents)
+		t.Errorf("a valid set is reported invalid: %+v", set.documents)
 	}
-	if got := set.Documents[1].Source(); got != multi+"#3" {
+	if got := set.documents[1].Source(); got != multi+"#3" {
 		t.Errorf("Source() = %q, want the file and document index", got)
 	}
 	if got := set.Policies()[0].Spec.Hosts[0].Host; got != "api.github.com" {
@@ -145,7 +145,7 @@ hosts:
 		duplicate bool
 	}
 	var got []key
-	for _, e := range set.Documents[0].Invalid {
+	for _, e := range set.documents[0].Invalid {
 		got = append(got, key{e.Field, e.Duplicate})
 		if e.Message == "" || strings.HasPrefix(e.Message, e.Field) {
 			t.Errorf("message %q of %s should say what is wrong without repeating the field", e.Message, e.Field)
@@ -170,7 +170,7 @@ func TestExamples(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, d := range set.Documents {
+	for _, d := range set.documents {
 		if len(d.Invalid) > 0 {
 			t.Errorf("%s: %s: %v", d.Source(), d.Name(), d.Invalid)
 		}

@@ -4,12 +4,31 @@ All notable changes to ate-gress are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Versions before 0.1.0 were release candidates, and anything could change
-between two of them. [docs/compatibility.md](docs/compatibility.md) says what
-is promised from 0.1.0 on. Entries marked **Operators** change what a
+ate-gress is alpha: anything may change between two versions.
+[docs/compatibility.md](docs/compatibility.md) says what that means. Entries marked **Operators** change what a
 running installation does and need action or attention on upgrade.
 
 ## [Unreleased]
+
+### Changed
+
+- `docs/compatibility.md` no longer promises a stable API, metrics or logs
+  from 0.1.0: ate-gress is alpha, and anything may change in any release.
+- `ategressctl test` refuses `"-"` in a test file's `policies`, which it
+  used to read as a file named `-`. Stdin is for `-f -`.
+
+### Fixed
+
+- `ategressctl lint` names the host as written (`spec.hosts[0]`) in
+  findings about a rejected policy whose host it had to normalize, instead
+  of `spec.hosts[-1]`.
+- `ategressctl lint` leaves a policy without `metadata.name`, which the API
+  server refuses, out of the snapshot its checks read. Several of them no
+  longer merge into one policy named `""` that shadows others or takes
+  their findings.
+- The `AteGressPoliciesRejected` alert, the `policiesRejected` chart value
+  and the runbook said a rejected policy is left out of the snapshot. It
+  fails closed instead, and they now say so.
 
 ## [0.1.0] - 2026-11-27
 

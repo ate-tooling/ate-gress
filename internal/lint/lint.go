@@ -123,15 +123,17 @@ type EgressPolicy struct {
 // written: those the API server would reject (Schema, DuplicateItem) and those
 // the compiler rejects (Compile). It returns the snapshot policy.Compile
 // builds from the set, which is what ate-gress would serve from, and the
-// compiler's results in the order of set.Documents.
+// compiler's results in the order of set.All.
 //
 // A policy the compiler rejects is still in that snapshot, as a claim on its
 // hosts with no routes, and the Compile finding says what it claims.
+//
+// A policy without a name is left out of the snapshot, since the API server
+// refuses it; the Schema finding says so.
 func Validate(set *policyfile.Set) (*policy.Snapshot, []policy.Result, []Finding) {
 	l := &linter{}
-	snap, results := policy.Compile(set.Policies())
-	for i := range set.Documents {
-		d := &set.Documents[i]
+	snap, results := set.Compile()
+	for d := range set.All() {
 		for _, e := range d.Invalid {
 			check := Schema
 			if e.Duplicate {
@@ -139,9 +141,9 @@ func Validate(set *policyfile.Set) (*policy.Snapshot, []policy.Result, []Finding
 			}
 			l.add(check, d, e.Field, "%s", e.Message)
 		}
-		if err := results[i].Err; err != nil {
+		if err := results[d.Order].Err; err != nil {
 			field, msg := splitCompileError(err.Error())
-			l.add(Compile, d, field, "%s. %s", msg, results[i].Effect)
+			l.add(Compile, d, field, "%s. %s", msg, results[d.Order].Effect)
 		}
 	}
 	return snap, results, l.findings
@@ -151,22 +153,18 @@ func Validate(set *policyfile.Set) (*policy.Snapshot, []policy.Result, []Finding
 func Run(set *policyfile.Set, egress []EgressPolicy) []Finding {
 	snap, results, invalid := Validate(set)
 	l := &linter{findings: invalid}
-	for i := range set.Documents {
-		if results[i].Err == nil {
-			l.routes(&set.Documents[i])
+	for d := range set.All() {
+		if results[d.Order].Err == nil {
+			l.routes(d)
 		}
 	}
 	// What follows reads the claims from the snapshot Compile built, so it is
 	// about the claims ate-gress would actually hold.
-	docs := make(map[string]*policyfile.Document, len(set.Documents))
-	for i := range set.Documents {
-		docs[set.Documents[i].Name()] = &set.Documents[i]
-	}
 	for _, host := range snap.Hosts() {
 		claims := snap.Claims(host)
-		l.audit(docs, host, claims)
+		l.audit(set, host, claims)
 		for _, e := range egress {
-			l.egress(docs, host, claims, e)
+			l.egress(set, host, claims, e)
 		}
 	}
 	slices.SortStableFunc(l.findings, func(a, b Finding) int {
@@ -203,9 +201,12 @@ func splitCompileError(msg string) (field, rest string) {
 	}
 }
 
-// hostField returns the path of host in d's spec.
+// hostField returns the path in d's spec of host, as the snapshot names it.
 func hostField(d *policyfile.Document, host string) string {
-	i := slices.IndexFunc(d.Policy.Spec.Hosts, func(h policyfile.Host) bool { return h.Host == host })
+	i := slices.IndexFunc(d.Policy.Spec.Hosts, func(h policyfile.Host) bool {
+		claimed, ok := policy.ClaimedHost(h.Host)
+		return ok && claimed == host
+	})
 	return fmt.Sprintf("spec.hosts[%d]", i)
 }
 
@@ -317,12 +318,12 @@ func intersect(a, b []policyfile.Method) []string {
 // routes, for the actors its selector is read to select, so it shadows an
 // Audit policy as a lockdown would. A rejected Audit policy has no routes to
 // shadow and is not looked at: its Compile finding says what it claims.
-func (l *linter) audit(docs map[string]*policyfile.Document, host string, claims []policy.Claim) {
+func (l *linter) audit(set *policyfile.Set, host string, claims []policy.Claim) {
 	for _, p := range claims {
 		if !p.Audit || p.Rejected {
 			continue
 		}
-		d := docs[p.Policy]
+		d := set.Document(p.Policy)
 		var partly, maybe []policy.Claim
 		var example identity.Actor
 		covered := false
@@ -395,7 +396,7 @@ func quoted(singular, plural string, claims []policy.Claim) string {
 // egress checks host, and the policies claiming it, against one Substrate
 // EgressPolicy. A policy is checked only if it can select the actor the
 // EgressPolicy belongs to, as far as that actor is known.
-func (l *linter) egress(docs map[string]*policyfile.Document, host string, claims []policy.Claim, e EgressPolicy) {
+func (l *linter) egress(set *policyfile.Set, host string, claims []policy.Claim, e EgressPolicy) {
 	reach := e.Policy.Reach(host)
 	if len(reach.Passthrough) == 0 && reach.Seen() {
 		return
@@ -416,7 +417,7 @@ func (l *linter) egress(docs map[string]*policyfile.Document, host string, claim
 		default:
 			scope = " for the actor the EgressPolicy belongs to"
 		}
-		d := docs[c.Policy]
+		d := set.Document(c.Policy)
 		field := hostField(d, host) + ".host"
 		if len(reach.Passthrough) > 0 {
 			seen := append(slices.Clone(reach.HTTPS), reach.HTTP...)
